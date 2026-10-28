@@ -13,7 +13,7 @@ export const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", icon: "LayoutDashboard", roles: ["owner", "manager"], primary: true },
   { href: "/sales", label: "Sales", icon: "Fuel", roles: ["owner", "manager", "attendant"], primary: true },
   { href: "/shifts", label: "Shifts", icon: "Clock", roles: ["owner", "manager", "attendant"], primary: true },
-  { href: "/purchases", label: "Deliveries", icon: "PackagePlus", roles: ["owner", "manager"], primary: true },
+  { href: "/purchases", label: "Add stock", icon: "PackagePlus", roles: ["owner", "manager"], primary: true },
   { href: "/stock", label: "Stock", icon: "Gauge", roles: ["owner", "manager"] },
   { href: "/trucks", label: "Trucks", icon: "Truck", roles: ["owner", "manager"] },
   { href: "/expenses", label: "Expenses", icon: "Receipt", roles: ["owner", "manager"] },

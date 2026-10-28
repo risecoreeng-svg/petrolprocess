@@ -9,16 +9,16 @@ export default async function PurchasesPage({
   searchParams: Promise<{ truck?: string; supplier?: string }>;
 }) {
   const { truck, supplier } = await searchParams;
+  // Owner and sales manager both see what stock cost; RLS enforces it.
   const profile = await requireRole("owner", "manager");
-  const isOwner = profile.role === "owner";
   const supabase = await createClient();
 
-  let history = isOwner
-    ? supabase
-        .from("purchases")
-        .select("id, date, supplier_id, truck_id, tank_id, litres, cost_per_litre, fuel_cost, trip_cost, landed_cost_per_litre")
-        .is("deleted_at", null)
-    : supabase.from("purchases_safe").select("id, date, supplier_id, truck_id, tank_id, litres");
+  let history = supabase
+    .from("purchases")
+    .select(
+      "id, date, supplier_id, truck_id, tank_id, fuel_type_id, litres, currency, original_total, fuel_cost, trip_cost, landed_cost_per_litre",
+    )
+    .is("deleted_at", null);
   if (truck) history = history.eq("truck_id", truck);
   if (supplier) history = history.eq("supplier_id", supplier);
 
@@ -27,7 +27,7 @@ export default async function PurchasesPage({
     supabase.from("trucks").select("*").is("deleted_at", null).order("plate_number"),
     supabase.from("suppliers").select("*").is("deleted_at", null).order("name"),
     supabase.from("tanks").select("*").is("deleted_at", null).order("name"),
-    supabase.from("fuel_types").select("*").is("deleted_at", null),
+    supabase.from("fuel_types").select("*").is("deleted_at", null).order("name"),
   ]);
 
   return (
@@ -37,7 +37,7 @@ export default async function PurchasesPage({
       suppliers={(suppliers ?? []) as Supplier[]}
       tanks={(tanks ?? []) as Tank[]}
       fuelTypes={(fuelTypes ?? []) as FuelType[]}
-      isOwner={isOwner}
+      isOwner={profile.role === "owner"}
       filter={{ truck: truck ?? "", supplier: supplier ?? "" }}
     />
   );
