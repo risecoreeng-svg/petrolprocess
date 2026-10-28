@@ -23,12 +23,15 @@ export const getProfile = cache(async (): Promise<Profile> => {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
+  const { data: profile, error } = await supabase
     .from("profiles")
     .select("id, org_id, full_name, role, active, deleted_at, organizations(name, base_currency)")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
+  // A failed query (e.g. the database is behind the app's migrations) is an error, not an
+  // inactive account: don't sign the user out for it.
+  if (error) throw new Error(`Couldn't load your profile: ${error.message}`);
   if (!profile || !profile.active || profile.deleted_at) redirect("/login?inactive=1");
   const org = profile.organizations as unknown as { name: string; base_currency: string } | null;
   return {
