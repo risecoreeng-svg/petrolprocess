@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { ArrowUpRight, Droplets, HandCoins, Wrench } from "lucide-react";
+import { ArrowUpRight, CalendarClock, Check, Droplets, HandCoins, Wrench } from "lucide-react";
 import { getProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { eachDay, pctChange, previousRange, resolveRange } from "@/lib/range";
-import { formatDate, litres, num } from "@/lib/utils";
+import { formatDate, litres, nairobiToday, num } from "@/lib/utils";
 import { formatMoney } from "@/lib/currency";
 import type { Tank } from "@/lib/types";
 import { DateRangeFilter } from "@/components/date-range-filter";
@@ -56,6 +56,25 @@ export default async function DashboardPage({
       isOwner ? supabase.from("stock_value").select("value") : Promise.resolve({ data: null }),
     ]);
 
+  const today = nairobiToday();
+  const [{ data: dueSales }, setup] = await Promise.all([
+    supabase
+      .from("sales_safe")
+      .select("id, fuel_type_id, litres, delivery_date, customer_id")
+      .eq("delivery_status", "scheduled")
+      .lte("delivery_date", today)
+      .order("delivery_date")
+      .limit(20),
+    // First-run checklist (owner only): what has been set up so far
+    isOwner
+      ? Promise.all([
+          supabase.from("purchases").select("id", { count: "exact", head: true }),
+          supabase.from("profiles").select("id", { count: "exact", head: true }),
+          supabase.from("sales_safe").select("id", { count: "exact", head: true }),
+        ])
+      : Promise.resolve(null),
+  ]);
+
   const days = (summaryRes.data ?? []) as Day[];
   const expByDay: Record<string, number> = {};
   if (isOwner) for (const d of days) expByDay[d.date] = Number(d.expenses ?? 0);
@@ -88,7 +107,16 @@ export default async function DashboardPage({
   const overdue = overdueCustomers.reduce((s, b) => s + Number(b.overdue), 0);
   const stockValue = (stockRes.data ?? []).reduce((s, v) => s + Number(v.value), 0);
 
+  const customerName = (id: string | null) => (balances ?? []).find((b) => b.customer_id === id)?.name;
   const attention = [
+    ...(dueSales ?? []).map((d) => ({
+      key: `due-${d.id}`,
+      icon: <CalendarClock className="size-[18px]" />,
+      tone: d.delivery_date < today ? "bg-orange text-white" : "bg-yellow text-[#1c1c1a]",
+      title: `${d.delivery_date < today ? "Late delivery" : "Deliver today"}: ${num(d.litres)} L ${fuelName(d.fuel_type_id)}`,
+      sub: `${customerName(d.customer_id) ?? "Walk-in customer"} · due ${formatDate(d.delivery_date)}`,
+      action: { href: "/sales", label: "Open deliveries" },
+    })),
     ...lowTanks.map((t) => ({
       key: `tank-${t.id}`,
       icon: <Droplets className="size-[18px]" />,
@@ -132,6 +160,13 @@ export default async function DashboardPage({
           <CurrencySwitcher current={disp.code} />
         </Suspense>
       </div>
+
+      {setup ? <SetupChecklist steps={[
+        { done: allTanks.length > 0, label: "Add your fuel and a tank", href: "/purchases", hint: "Petrol, Diesel and Kerosene are ready; a tank is created the first time you add stock." },
+        { done: (setup[0].count ?? 0) > 0, label: "Add stock", href: "/purchases", hint: "Record the fuel that arrived and its selling price." },
+        { done: (setup[1].count ?? 0) > 1, label: "Add your staff", href: "/users", hint: "Give attendants and sales managers their own login." },
+        { done: (setup[2].count ?? 0) > 0, label: "Record your first sale", href: "/sales", hint: "Sell fuel from the Sales screen." },
+      ]} /> : null}
 
       {/* Headline numbers */}
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -338,5 +373,42 @@ function MiniCount({ label, value }: { label: string; value: number }) {
       <p className="text-xl font-semibold tabular-nums">{value}</p>
       <p className="text-[13px] text-muted">{label}</p>
     </div>
+  );
+}
+
+function SetupChecklist({ steps }: { steps: { done: boolean; label: string; href: string; hint: string }[] }) {
+  const done = steps.filter((x) => x.done).length;
+  if (done === steps.length) return null;
+  return (
+    <Card className="mb-5">
+      <CardHeader className="flex-row items-center gap-2.5">
+        <CardTitle>Get started</CardTitle>
+        <Badge variant="info" className="ml-auto">
+          {done} of {steps.length} done
+        </Badge>
+      </CardHeader>
+      <CardContent className="pt-1">
+        <ol>
+          {steps.map((step, i) => (
+            <li key={step.label} className={`flex flex-wrap items-center gap-3.5 py-3.5 ${i ? "border-t border-line" : ""}`}>
+              <div
+                className={`grid size-9 flex-none place-items-center rounded-full text-sm font-semibold ${step.done ? "bg-green text-white" : "bg-surface-2 text-fg"}`}
+              >
+                {step.done ? <Check className="size-[18px]" /> : i + 1}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className={`font-medium ${step.done ? "text-muted line-through" : ""}`}>{step.label}</p>
+                {!step.done ? <p className="text-sm text-muted">{step.hint}</p> : null}
+              </div>
+              {!step.done ? (
+                <Button asChild variant="outline" size="sm" className="h-10 w-full sm:w-auto">
+                  <Link href={step.href}>Do it</Link>
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
   );
 }
