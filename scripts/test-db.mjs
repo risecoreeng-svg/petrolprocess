@@ -60,7 +60,8 @@ let db;
 
 function record(section, name, ok, actual, expected) {
   results.push({ section, name, ok, actual, expected });
-  ok ? passed++ : failed++;
+  if (ok) passed++;
+  else failed++;
 }
 let section = "";
 const check = (name, actual, expected) =>

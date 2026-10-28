@@ -1,6 +1,8 @@
 # PetroTrack
 
-PetroTrack is a multi-tenant SaaS for Kenyan fuel depots. It covers deliveries, pump sales, stock, credit customers, shifts, expenses and profit. Any business can sign up and gets its own private organization. Staff accounts belong to that organization only. The app is built for phones first, because attendants use it at the pump. Currency is KES and payments are cash, M-Pesa and credit.
+PetroTrack is a multi-tenant SaaS for fuel depots (built first for Sudan and South Sudan). It covers stock deliveries, pump sales, scheduled deliveries, credit customers, shifts, expenses and profit. Any business can sign up and gets its own private organization. Staff accounts belong to that organization only. The app is built for phones first, because attendants use it at the pump.
+
+Money is multi-currency: reports are kept in a base currency (USD by default), and sales, stock, expenses and credit payments can be taken in USD, SDG or SSP (the list is extensible). Payments are cash, mobile money and credit.
 
 **Stack:** Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · shadcn-style components · Supabase (Postgres, Auth, RLS) · Recharts · ready to deploy on Vercel.
 
@@ -51,7 +53,7 @@ Copy `.env.example` to `.env.local` and fill it in. Use the publishable key for 
 
 ## 4. Run the migrations
 
-The schema lives in `supabase/migrations/` (tables → triggers → RLS → views).
+The schema lives in `supabase/migrations/` (tables → triggers → RLS → views → `005` currencies, add-stock and deliveries). `005` is additive, so it can be pushed onto a project that already has data.
 
 ```bash
 npx supabase login
@@ -79,8 +81,11 @@ Open http://localhost:3000/signup and create a business:
 
 1. Enter the business name, your name, email and a password.
 2. In one database transaction, PetroTrack creates your login, a new organization, your **owner** profile, and the fuel types Petrol, Diesel and Kerosene (priced at 0).
-3. Go to **Stock**: set the pump prices, add tanks, then record a delivery.
-4. Add managers and attendants under **Users**.
+3. Go to **Settings** and type today's SDG/SSP rates (the starting rates are examples marked "update me").
+4. Go to **Add stock**: pick the fuel, name a new tank, enter litres, what you paid and the selling price. The fuel can be sold straight away.
+5. Add sales managers and attendants under **Users**.
+
+The dashboard shows a "Get started" checklist until these are done.
 
 ## 6. Demo organization (optional)
 
@@ -98,8 +103,8 @@ This renames that org to "PetroTrack Demo Depot" and loads 14 days of data:
 
 - 3 trucks, 3 tanks (kerosene is set up to trigger the low-stock alert) and 2 suppliers
 - 3 credit customers
-- cash, M-Pesa and credit sales
-- expenses and a credit payment
+- cash, mobile money and credit sales, some in SDG and SSP
+- demo exchange rates, expenses and a credit payment
 
 It refuses to run if the account isn't an owner or its org already has tanks.
 
@@ -129,20 +134,38 @@ It refuses to run if the account isn't an owner or its org already has tanks.
 
 ## Roles (per organization)
 
-| | Owner | Manager | Attendant |
+| | Owner | Sales manager | Attendant |
 |---|:-:|:-:|:-:|
 | Record sales | ✓ | ✓ | ✓ (needs an open shift; price is fixed to the pump price) |
 | Own shifts and cash hand-over | ✓ | ✓ | ✓ |
-| Deliveries, stock, trucks, expenses, customers | ✓ | ✓ (cannot read cost figures) | — |
+| Add stock, trucks, expenses, customers | ✓ | ✓ (sees what stock cost) | — |
+| Cancel a sale (with a reason) | ✓ | ✓ | — |
+| Exchange rates, currencies | ✓ | — | — |
 | Reports | ✓ full P&L | ✓ sales and expenses only | — |
 | Profit, cost of fuel, landed cost, stock value | ✓ | — | — |
-| Void sales, deliveries, payments, expenses | ✓ | — | — |
+| Remove deliveries, payments, expenses | ✓ | — | — |
 | Users and audit log | ✓ | — | — |
 
-The database enforces these limits, not just the UI. Managers and attendants read sales and deliveries through the cost-free views `sales_safe` and `purchases_safe`.
+The database enforces these limits, not just the UI. In the database the sales manager role is called `manager`. Sales managers and attendants read sales through `sales_safe`, which has no cost of fuel sold, so they never see profit or margins. Sales managers can read what deliveries cost. Attendants can never add stock (`add_stock()` refuses them, and direct inserts into `purchases` are not granted to anyone).
+
+## Currencies and exchange rates
+
+- **Base currency:** each business has one (default USD), chosen in **Settings** and locked once money has been recorded. Profit, stock value, weighted-average cost and customer balances are all kept in it.
+- **Accepted currencies:** USD, SDG and SSP by default. To support another (e.g. KES), add a row to `public.currencies` and an entry in `lib/currency.ts`.
+- **Rates:** typed by the owner in **Settings** as "1 USD = N SDG", using the rate the business actually uses (official or market). A new business starts with example rates flagged "update me". Every screen shows a yellow prompt when a rate is an example or more than a day old.
+- **Every money record keeps its original currency, original amount, the rate used and the base amount.** Old transactions are never recomputed when the rate changes.
+- **Display:** Dashboard, Reports and Customers have a USD / SDG / SSP switcher. Other currencies are converted at today's rate, with a note saying so. Reports can always be exported in the base currency.
+- **Formatting:** USD shows 2 decimals; SDG and SSP show none.
+
+## Stock and sales flow
+
+- **Add stock** (owner, sales manager): fuel, tank (or create one inline with its name and capacity), litres, cost per litre or total, currency, selling price, supplier and truck (or add them inline), trip cost and date. One database call; the litres can be sold immediately and the tank's average cost updates.
+- **Sell fuel:** litres, then the amount or price per litre in any accepted currency (defaults to the most-used currency and the pump price), payment type (cash, mobile money with an optional reference, credit), optional customer, and delivery now or scheduled. The litres leave the tank when the sale is recorded, so stock can't be oversold.
+- **Deliveries due:** scheduled sales are listed on the Sales screen (and on the dashboard when due or late) with **Delivered** and **Cancel**. Cancelling needs a reason and puts the litres back.
 
 ## How the money is calculated
 
+- All money below is in the base currency, converted with the rate stored on each record.
 - **Landed cost per litre** = (litres × cost per litre + trip cost) ÷ litres
 - **Weighted average cost** per tank is updated on every delivery: (litres in tank × old average + delivered litres × landed cost) ÷ new total litres
 - Each sale stores the average cost at the moment of sale, so later deliveries don't change past profit.
@@ -158,18 +181,37 @@ The database enforces these limits, not just the UI. Managers and attendants rea
 - **Deliveries** need a truck, litres and cost per litre, and cannot overfill a tank.
 - **Sales** cannot exceed a tank's stock.
 - **Credit sales** need a customer and must stay within that customer's credit limit.
-- **M-Pesa sales** need a transaction code. Each code can be used only once within an organization.
+- **Mobile money** references are optional; when given, each one can be used only once within an organization.
 - **Payments** cannot exceed the balance owed.
-- **Soft delete only.** `DELETE` is blocked. The owner voids sales, deliveries and payments, and a void reverses its stock and balance effects.
+- **Soft delete only.** `DELETE` is blocked. Cancelling a sale needs a reason; it and voided deliveries or payments reverse their stock and balance effects.
+- **Attendants cannot add stock.** Only `add_stock()` writes deliveries, and it checks the role.
 - **Audit log.** Every insert, edit and void is written to `audit_log` with the user and organization. The log is append-only.
 
 ## Tests
 
 ```bash
+npm run typecheck
+```
+
+```bash
+npm run lint
+```
+
+```bash
 npm run test:db
 ```
 
-This runs all the migrations against an in-memory Postgres (PGlite) with a stubbed `auth` schema, then runs 125 checks.
+This runs all the migrations against an in-memory Postgres (PGlite) with a stubbed `auth` schema, then runs 167 checks.
+
+**Currencies and stock flow**
+- A sale of 450,000 SDG at 1 USD = 2,500 SDG is stored as 180.00 USD.
+- After the rate changes to 3,000, the old sale is still 180.00 USD and the same amount now converts to 150.00 USD.
+- Profit is computed in USD.
+- An attendant cannot add stock.
+- Added stock is sellable immediately.
+- A sale cannot exceed the stock in the tank.
+- Scheduled deliveries, cancel-with-reason and owner-only rates.
+- Migration 005 applies cleanly on top of existing single-currency data.
 
 **Sign-up**
 - One sign-up creates the organization, owner profile and fuel types in a single transaction.

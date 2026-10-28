@@ -6,8 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit",
-    "test:db": "node scripts/test-db.mjs"
+    "lint": "eslint .",
+    "test:db": "node scripts/test-db.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fontsource-variable/outfit": "^5.3.0",
@@ -34,6 +35,8 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.3",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3"
   }
