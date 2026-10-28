@@ -138,125 +138,122 @@ export function SalesClient({
 
   return (
     <>
-      <PageHeader title="Sales" description="Quick entry" />
+      <PageHeader title="Sell fuel" description="Pick the fuel, enter litres or shillings, choose how they paid." />
 
       {needsShift ? (
-        <Card className="mb-4 border-amber-300 bg-amber-50">
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div className="flex items-center gap-2 text-amber-900">
-              <Clock className="size-5" />
-              <p className="font-medium">Start your shift before recording sales.</p>
-            </div>
-            <Button size="lg" onClick={startShift} disabled={startingShift}>
-              Start shift
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-tile)] bg-yellow p-4 text-[#1c1c1a] sm:p-5">
+          <div className="flex items-center gap-3">
+            <Clock className="size-5 shrink-0" />
+            <p className="font-medium">Start your shift first, then you can record sales.</p>
+          </div>
+          <Button size="lg" onClick={startShift} disabled={startingShift} className="w-full sm:w-auto">
+            Start shift
+          </Button>
+        </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,440px)_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,460px)_1fr]">
         <Card className={cn("h-fit", needsShift && "pointer-events-none opacity-50")}>
-          <CardContent className="p-4">
-            <form onSubmit={onSubmit} className="grid gap-5" noValidate>
+          <CardContent className="pt-5 sm:pt-[26px]">
+            <form onSubmit={onSubmit} className="grid gap-6" noValidate>
               {/* Fuel type */}
-              <div className="grid gap-2">
-                <p className="text-sm font-medium">Fuel</p>
-                <div className="grid grid-cols-3 gap-2">
+              <fieldset className="grid gap-2.5">
+                <legend className="mb-2.5 text-[15px] font-medium">1. Which fuel?</legend>
+                <div className="grid grid-cols-3 gap-2.5">
                   {fuelTypes.map((f) => (
-                    <button
+                    <Choice
                       key={f.id}
-                      type="button"
+                      on={fuelId === f.id}
                       onClick={() => {
                         setFuelId(f.id);
                         setTankId("");
                       }}
-                      className={cn(
-                        "flex min-h-20 flex-col items-center justify-center rounded-xl border-2 p-2 transition-colors",
-                        fuelId === f.id ? "border-primary bg-accent" : "border-border bg-card",
-                      )}
+                      className="min-h-[84px]"
                     >
-                      <span className="font-semibold">{f.name}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">{num(f.current_selling_price)}/L</span>
-                    </button>
+                      <span className="text-[16px] font-semibold">{f.name}</span>
+                      <span className="text-[13px] tabular-nums opacity-70">KES {num(f.current_selling_price)}/L</span>
+                    </Choice>
                   ))}
                 </div>
                 {fuelTanks.length > 1 ? (
                   <Select aria-label="Tank" value={tank?.id ?? ""} onChange={(e) => setTankId(e.target.value)}>
                     {fuelTanks.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.name} · {litres(t.current_litres)}
+                        {t.name} · {litres(t.current_litres)} left
                       </option>
                     ))}
                   </Select>
                 ) : tank ? (
-                  <p className="text-xs text-muted-foreground">
-                    {tank.name} · {litres(tank.current_litres)} available
+                  <p className="text-[13px] text-muted">
+                    {tank.name} · {litres(tank.current_litres)} left
                   </p>
                 ) : (
-                  <p className="text-xs text-destructive">No tank set up for this fuel.</p>
+                  <p className="text-[13px] text-orange">No tank set up for this fuel. Ask the manager.</p>
                 )}
-              </div>
+              </fieldset>
 
               {/* Quantity */}
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">{mode === "litres" ? "Litres" : "Amount (KES)"}</p>
-                  <div className="flex rounded-lg bg-muted p-0.5 text-xs">
+              <div className="grid gap-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="qty" className="text-[15px] font-medium">
+                    2. How much?
+                  </label>
+                  <div className="seg text-sm" role="tablist" aria-label="Enter by">
                     {(["litres", "amount"] as const).map((m) => (
                       <button
                         key={m}
                         type="button"
+                        role="tab"
+                        aria-selected={mode === m}
                         onClick={() => {
                           setMode(m);
                           setQty("");
                         }}
-                        className={cn("rounded-md px-3 py-1.5", mode === m && "bg-card font-medium shadow-xs")}
+                        className={cn("!px-4 !py-1.5 !text-sm", mode === m && "on")}
                       >
-                        {m === "litres" ? "Litres" : "KES"}
+                        {m === "litres" ? "Litres" : "Shillings"}
                       </button>
                     ))}
                   </div>
                 </div>
-                <Input
-                  inputMode="decimal"
-                  placeholder="0"
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value)}
-                  aria-invalid={!!errors.litres}
-                  className="h-16 text-center text-3xl font-bold tabular-nums"
-                />
-                {errors.litres ? <p className="text-xs text-destructive">{errors.litres}</p> : null}
+                <div className="relative">
+                  <Input
+                    id="qty"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={qty}
+                    onChange={(e) => setQty(e.target.value)}
+                    aria-invalid={!!errors.litres}
+                    className="h-[72px] rounded-[var(--radius-tile)] text-center text-[34px] font-semibold tabular-nums"
+                  />
+                  <span className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[15px] text-muted">
+                    {mode === "litres" ? "L" : "KES"}
+                  </span>
+                </div>
+                {errors.litres ? <p className="text-[13px] text-orange">{errors.litres}</p> : null}
                 {tank && saleLitres > Number(tank.current_litres) ? (
-                  <p className="text-xs text-destructive">Only {litres(tank.current_litres)} in the tank.</p>
+                  <p className="text-[13px] text-orange">Only {litres(tank.current_litres)} left in the tank.</p>
                 ) : null}
               </div>
 
               {/* Payment */}
-              <div className="grid gap-2">
-                <p className="text-sm font-medium">Payment</p>
-                <div className="grid grid-cols-3 gap-2">
+              <fieldset className="grid gap-2.5">
+                <legend className="mb-2.5 text-[15px] font-medium">3. How did they pay?</legend>
+                <div className="grid grid-cols-3 gap-2.5">
                   {(["cash", "mpesa", "credit"] as const).map((p) => {
                     const Icon = PAY_ICON[p];
                     return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setPayment(p)}
-                        className={cn(
-                          "flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border-2 text-sm font-medium",
-                          payment === p ? "border-primary bg-accent" : "border-border bg-card",
-                        )}
-                      >
+                      <Choice key={p} on={payment === p} onClick={() => setPayment(p)} className="min-h-[72px] gap-1.5">
                         <Icon className="size-5" />
-                        {PAYMENT_LABEL[p]}
-                      </button>
+                        <span className="text-[15px] font-medium">{PAYMENT_LABEL[p]}</span>
+                      </Choice>
                     );
                   })}
                 </div>
-              </div>
+              </fieldset>
 
               {payment === "mpesa" ? (
-                <Field label="M-Pesa code" htmlFor="mref" error={errors.mpesa_ref}>
+                <Field label="M-Pesa code" htmlFor="mref" error={errors.mpesa_ref} hint="The code from the customer's M-Pesa message.">
                   <Input
                     id="mref"
                     autoCapitalize="characters"
@@ -271,10 +268,10 @@ export function SalesClient({
                   label="Customer"
                   htmlFor="cust"
                   error={errors.customer_id}
-                  hint={available !== null ? `Available credit ${kes(available)}` : undefined}
+                  hint={available !== null ? `They can still take ${kes(available)} on credit` : "Only customers allowed to buy on credit are listed."}
                 >
                   <Select id="cust" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-                    <option value="">Select customer…</option>
+                    <option value="">Choose customer…</option>
                     {customers.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -284,17 +281,21 @@ export function SalesClient({
                 </Field>
               ) : null}
               {available !== null && total > available ? (
-                <p className="text-sm text-destructive">This sale is over the customer&apos;s credit limit.</p>
+                <p className="text-[15px] text-orange">This is more than this customer is allowed to owe.</p>
               ) : null}
 
-              <div className="flex items-end justify-between rounded-xl bg-muted p-4">
-                <div className="text-sm text-muted-foreground">
-                  {num(saleLitres)} L × {num(price)}
+              <div className="flex items-end justify-between gap-3 rounded-[var(--radius-tile)] bg-black p-5 text-white">
+                <div className="text-[13px] text-white/70">
+                  Customer pays
+                  <br />
+                  <span className="tabular-nums">
+                    {num(saleLitres)} L × {num(price)}
+                  </span>
                 </div>
-                <div className="text-2xl font-bold tabular-nums">{kes(total)}</div>
+                <div className="text-[28px] font-semibold tabular-nums">{kes(total)}</div>
               </div>
 
-              <Button type="submit" size="xl" disabled={pending || needsShift}>
+              <Button type="submit" size="xl" variant="yellow" disabled={pending || needsShift}>
                 Record sale
               </Button>
             </form>
@@ -302,27 +303,26 @@ export function SalesClient({
         </Card>
 
         <div className="min-w-0">
-          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <MiniStat label="Today" value={kes(totals.all)} strong />
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <MiniStat label={role === "attendant" ? "Your sales today" : "Sales today"} value={kes(totals.all)} strong />
             <MiniStat label="Cash" value={kes(totals.cash)} />
             <MiniStat label="M-Pesa" value={kes(totals.mpesa)} />
             <MiniStat label="Credit" value={kes(totals.credit)} />
           </div>
-          <p className="mb-2 text-sm text-muted-foreground">
-            {sales.length} sales today · {litres(totals.litres)}
-            {role === "attendant" ? " (yours)" : ""}
+          <p className="mb-3 text-[15px] text-muted">
+            {sales.length} {sales.length === 1 ? "sale" : "sales"} today · {litres(totals.litres)}
           </p>
           {sales.length === 0 ? (
-            <EmptyState icon={<Fuel />} title="No sales yet today" description="Recorded sales appear here." />
+            <EmptyState icon={<Fuel />} title="No sales yet today" description="Sales you record will show up here." />
           ) : (
-            <ul className="divide-y rounded-xl border bg-card">
+            <ul className="divide-y divide-line overflow-hidden rounded-[var(--radius-tile)] border border-line bg-surface-3 shadow-[var(--shadow-soft)]">
               {sales.map((s) => (
-                <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-3.5">
                   <div className="min-w-0">
                     <p className="font-medium">
                       {name.fuel(s.fuel_type_id)} · {num(s.litres)} L
                     </p>
-                    <p className="truncate text-xs text-muted-foreground">
+                    <p className="truncate text-[13px] text-muted">
                       {formatDateTime(s.created_at)}
                       {s.customer_id ? ` · ${name.customer(s.customer_id)}` : ""}
                       {s.mpesa_ref ? ` · ${s.mpesa_ref}` : ""}
@@ -330,9 +330,9 @@ export function SalesClient({
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="text-right">
+                    <div className="flex flex-col items-end gap-1">
                       <p className="font-semibold tabular-nums">{kes(s.total)}</p>
-                      <Badge variant={s.payment_type === "credit" ? "warning" : s.payment_type === "mpesa" ? "info" : "default"}>
+                      <Badge variant={s.payment_type === "credit" ? "warning" : s.payment_type === "mpesa" ? "info" : "secondary"}>
                         {PAYMENT_LABEL[s.payment_type]}
                       </Badge>
                     </div>
@@ -348,11 +348,39 @@ export function SalesClient({
   );
 }
 
+/** Big tap tile: white when off, black when chosen. */
+function Choice({
+  on,
+  onClick,
+  className,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center justify-center rounded-[var(--radius-tile)] p-2 transition-colors active:scale-[0.98]",
+        on ? "bg-black text-white shadow-[var(--shadow-lift)]" : "bg-surface-3 text-fg shadow-[var(--shadow-soft)] hover:bg-white",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function MiniStat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className={cn("rounded-xl border bg-card p-3", strong && "border-primary bg-accent")}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-bold tabular-nums">{value}</p>
+    <div className={cn("min-w-0 rounded-[var(--radius-tile)] p-4 shadow-[var(--shadow-soft)]", strong ? "bg-yellow text-[#1c1c1a]" : "bg-surface-3")}>
+      <p className={cn("text-[13px]", strong ? "opacity-75" : "text-muted")}>{label}</p>
+      <p className="mt-0.5 truncate text-[17px] font-semibold tabular-nums">{value}</p>
     </div>
   );
 }
@@ -360,16 +388,16 @@ function MiniStat({ label, value, strong }: { label: string; value: string; stro
 function VoidSale({ id }: { id: string }) {
   const { submit, pending } = useSubmit();
   async function onVoid() {
-    if (!confirm("Void this sale? Stock and customer balance will be restored. This is logged.")) return;
+    if (!confirm("Cancel this sale? The fuel goes back into the tank and any credit is reversed. This is recorded in the audit log.")) return;
     await submit(
       z.object({}),
       {},
       () => createClient().from("sales").update({ deleted_at: new Date().toISOString() }).eq("id", id),
-      "Sale voided",
+      "Sale cancelled",
     );
   }
   return (
-    <Button variant="ghost" size="icon" onClick={onVoid} disabled={pending} title="Void sale">
+    <Button variant="ghost" size="icon" onClick={onVoid} disabled={pending} title="Cancel sale" aria-label="Cancel sale">
       <Ban />
     </Button>
   );
