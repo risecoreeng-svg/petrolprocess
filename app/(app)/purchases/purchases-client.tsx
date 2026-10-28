@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/form-controls";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 
 export type DeliveryRow = {
@@ -83,7 +84,7 @@ export function PurchasesClient({
     <>
       <PageHeader
         title="Deliveries"
-        description="Record fuel brought in by your trucks"
+        description="Record fuel your trucks bring into the depot."
         actions={
           <Button variant="outline" onClick={() => setSupplierOpen(true)}>
             <Plus /> Supplier
@@ -118,7 +119,7 @@ export function PurchasesClient({
             {isOwner ? ` · ${kes(totalCost)} total cost` : ""}
           </p>
           {rows.length === 0 ? (
-            <EmptyState icon={<PackagePlus />} title="No deliveries" description="Recorded deliveries appear here." />
+            <EmptyState icon={<PackagePlus />} title="No deliveries yet" description="Record the first fuel delivery with the form." />
           ) : (
             <Table>
               <THead>
@@ -132,7 +133,9 @@ export function PurchasesClient({
                     <>
                       <TH className="text-right">Cost / L</TH>
                       <TH className="text-right">Trip</TH>
-                      <TH className="text-right">Landed / L</TH>
+                      <TH className="text-right">
+                        <span className="inline-flex items-center gap-1.5">Real cost / L {<InfoTip>What one litre really cost you once it reached your tank: the fuel price plus the trip cost (driver, truck fuel, tolls), divided by the litres delivered.</InfoTip>}</span>
+                      </TH>
                       <TH />
                     </>
                   ) : null}
@@ -259,7 +262,7 @@ function DeliveryForm({
             label="Into tank"
             htmlFor="tank"
             error={errors.tank_id}
-            hint={free !== null ? `${litres(free)} free space` : undefined}
+            hint={free !== null ? `Room for ${litres(free)} more` : undefined}
           >
             <Select id="tank" value={tankId} onChange={(e) => setTankId(e.target.value)}>
               <option value="">Select…</option>
@@ -278,11 +281,11 @@ function DeliveryForm({
               <Input id="cpl" inputMode="decimal" placeholder="0.00" value={cpl} onChange={(e) => setCpl(e.target.value)} />
             </Field>
           </div>
-          <Field label="Trip cost (driver pay, truck fuel, tolls)" htmlFor="trip" error={errors.trip_cost}>
+          <Field label="Trip cost" htmlFor="trip" error={errors.trip_cost} hint="Driver pay, the truck's own fuel and tolls for this trip.">
             <Input id="trip" inputMode="decimal" placeholder="0.00" value={trip} onChange={(e) => setTrip(e.target.value)} />
           </Field>
 
-          <div className="grid gap-1 rounded-lg bg-muted p-3 text-sm">
+          <div className="inner-box grid gap-1.5 text-[15px]">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Fuel cost</span>
               <span className="tabular-nums">{kes(fuelCost)}</span>
@@ -292,16 +295,16 @@ function DeliveryForm({
               <span className="tabular-nums">{kes(tripCost)}</span>
             </div>
             <div className="flex justify-between font-semibold">
-              <span>Total</span>
+              <span>Total paid</span>
               <span className="tabular-nums">{kes(fuelCost + tripCost)}</span>
             </div>
-            <div className="flex justify-between font-semibold text-primary">
-              <span>Landed cost / litre</span>
+            <div className="mt-1 flex items-center justify-between border-t border-line pt-2 font-semibold">
+              <span className="flex items-center gap-1.5">Real cost per litre <InfoTip>What one litre really cost you once it reached your tank: the fuel price plus the trip cost (driver, truck fuel, tolls), divided by the litres delivered.</InfoTip></span>
               <span className="tabular-nums">{kes(landed)}</span>
             </div>
           </div>
           {free !== null && l > free ? (
-            <p className="text-sm text-destructive">This is more than the tank&apos;s free space.</p>
+            <p className="text-[15px] text-orange">That won&apos;t fit. It&apos;s more than the empty space in this tank.</p>
           ) : null}
 
           <Button type="submit" size="lg" disabled={pending}>
