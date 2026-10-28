@@ -1,66 +1,108 @@
 @import "tailwindcss";
 
-:root {
-  --radius: 0.75rem;
-  --background: oklch(0.985 0.002 250);
-  --foreground: oklch(0.2 0.02 255);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.02 255);
-  --primary: oklch(0.55 0.17 145);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.95 0.01 250);
-  --secondary-foreground: oklch(0.25 0.02 255);
-  --muted: oklch(0.96 0.005 250);
-  --muted-foreground: oklch(0.5 0.02 255);
-  --accent: oklch(0.95 0.03 145);
-  --accent-foreground: oklch(0.3 0.08 145);
-  --destructive: oklch(0.58 0.22 27);
-  --destructive-foreground: oklch(0.99 0 0);
-  --warning: oklch(0.8 0.15 80);
-  --border: oklch(0.91 0.008 250);
-  --input: oklch(0.88 0.01 250);
-  --ring: oklch(0.55 0.17 145);
-  --chart-1: oklch(0.55 0.17 145);
-  --chart-2: oklch(0.62 0.19 35);
-  --chart-3: oklch(0.55 0.15 250);
+/* PetroTrack design tokens: a calm, light "warm cream" look (modelled on Risecore).
+   Pages use the semantic names (background, card, primary, muted-foreground…), so every
+   screen picks up the theme from here. */
+@theme {
+  /* Surfaces */
+  --color-bg: #f5f1e8; /* page base, warm cream */
+  --color-glow: #f0e4c6; /* soft warm glow in the page background */
+  --color-nav: #efe8da; /* sidebar and phone tab bar, a little darker than the page */
+  --color-surface: #faf8f3; /* cards */
+  --color-surface-2: #f1eee7; /* boxes inside cards, segmented control track */
+  --color-surface-3: #ffffff; /* inputs, table rows, active nav pill, stat tiles */
+  --color-line: rgba(28, 28, 26, 0.07);
+  --color-line-strong: rgba(28, 28, 26, 0.12);
+
+  /* Ink */
+  --color-fg: #1c1c1a;
+  --color-muted: #6f6b63;
+  --color-faint: #a19c92;
+
+  /* Brand and status */
+  --color-black: #1e1e1c; /* primary buttons are black pills */
+  --color-yellow: #eac65a; /* warning / attention */
+  --color-green: #2f5b4c; /* good / positive */
+  --color-orange: #c4532f; /* bad / overdue */
+  --color-danger: #e0533a;
+
+  /* Chart series (validated colour-blind safe on cream): sales, expenses */
+  --color-chart-sales: #2f6fd6;
+  --color-chart-expenses: #c4532f;
+
+  /* Semantic names used across the screens */
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-fg);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-fg);
+  --color-primary: var(--color-black);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--color-surface-2);
+  --color-secondary-foreground: var(--color-fg);
+  --color-muted-foreground: var(--color-muted);
+  --color-accent: var(--color-surface-3);
+  --color-accent-foreground: var(--color-fg);
+  --color-destructive: var(--color-orange);
+  --color-destructive-foreground: #ffffff;
+  --color-positive: var(--color-green);
+  --color-warning: var(--color-yellow);
+  --color-border: var(--color-line);
+  --color-input: var(--color-line-strong);
+  --color-ring: var(--color-black);
+
+  /* Shape and depth */
+  --radius-card: 28px;
+  --radius-tile: 22px;
+  --radius-inner: 16px;
+  --shadow-soft: 0 1px 2px rgba(60, 45, 20, 0.04), 0 8px 24px rgba(60, 45, 20, 0.06);
+  --shadow-lift: 0 2px 4px rgba(60, 45, 20, 0.05), 0 18px 40px rgba(60, 45, 20, 0.1);
+
+  /* Type: Outfit, with system fallbacks */
+  --font-sans: "Outfit Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Desktop layout (sidebar) starts at 900px; below that it's the phone layout with bottom tabs */
+  --breakpoint-nav: 900px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-warning: var(--warning);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+:root {
+  color-scheme: light;
+  --page-bg:
+    radial-gradient(1200px 600px at 85% -10%, var(--color-glow) 0%, transparent 60%),
+    radial-gradient(900px 500px at 10% 0%, #f8f4ec 0%, transparent 60%), var(--color-bg);
 }
 
 * {
-  border-color: var(--border);
+  border-color: var(--color-line);
+}
+
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  font-family: var(--font-sans);
+  color: var(--color-fg);
+  background: var(--page-bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-yellow) 55%, transparent);
+}
+
+/* Phones: no sideways scroll, and 16px form text so iPhone doesn't zoom in */
+@media (max-width: 899px) {
+  body {
+    overflow-x: clip;
+  }
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 input[type="number"]::-webkit-inner-spin-button,
@@ -70,4 +112,61 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 input[type="number"] {
   -moz-appearance: textfield;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@layer components {
+  /* Large page title */
+  .page-title {
+    font-size: 30px;
+    line-height: 1.08;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+  }
+  @media (min-width: 900px) {
+    .page-title {
+      font-size: 38px;
+    }
+  }
+  .card-title {
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  /* Segmented control (date filter, tabs) */
+  .seg {
+    display: flex;
+    background: var(--color-surface-2);
+    border-radius: 999px;
+    padding: 4px;
+  }
+  .seg > button,
+  .seg > a {
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 15px;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+  .seg > .on {
+    background: var(--color-surface-3);
+    color: var(--color-fg);
+    box-shadow: var(--shadow-soft);
+  }
+  /* Inner grey box inside a card */
+  .inner-box {
+    background: var(--color-surface-2);
+    border-radius: var(--radius-inner);
+    padding: 14px 16px;
+  }
 }

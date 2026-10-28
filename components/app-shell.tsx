@@ -11,7 +11,7 @@ import {
   HandCoins,
   LayoutDashboard,
   LogOut,
-  Menu,
+  MoreHorizontal,
   PackagePlus,
   Receipt,
   ScrollText,
@@ -41,6 +41,15 @@ const ICONS: Record<string, LucideIcon> = {
 
 const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Manager", attendant: "Attendant" };
 
+/** Black rounded square with a fuel drop: the PetroTrack mark. */
+export function BrandMark({ className }: { className?: string }) {
+  return (
+    <div className={cn("grid size-9 flex-none place-items-center rounded-[12px] bg-black text-yellow", className)}>
+      <Fuel className="size-[18px]" strokeWidth={2.2} />
+    </div>
+  );
+}
+
 export function AppShell({
   role,
   name,
@@ -68,123 +77,145 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-dvh md:flex">
+    <div className="min-h-dvh nav:flex">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r bg-card md:flex">
-        <div className="flex items-center gap-2 px-5 py-5">
-          <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Fuel className="size-5" />
-          </div>
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-nav nav:flex">
+        <div className="flex items-center gap-2.5 px-4 pb-3 pt-5">
+          <BrandMark />
           <div className="min-w-0">
-            <p className="font-bold leading-tight">PetroTrack</p>
-            <p className="truncate text-xs text-muted-foreground" title={orgName}>
+            <p className="text-lg font-semibold leading-tight tracking-[-0.02em]">PetroTrack</p>
+            <p className="truncate text-[13px] text-muted" title={orgName}>
               {orgName}
             </p>
           </div>
         </div>
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
           {items.map((item) => {
             const Icon = ICONS[item.icon];
+            const on = isActive(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={on ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
-                  isActive(item.href) && "bg-accent text-accent-foreground",
+                  "flex h-11 items-center gap-3 rounded-full px-4 text-[15px] transition-colors",
+                  on ? "bg-surface-3 font-medium text-fg shadow-[var(--shadow-soft)]" : "text-fg/80 hover:bg-black/[.05]",
                 )}
               >
-                <Icon className="size-4" />
+                <Icon className="size-[18px]" strokeWidth={on ? 2.1 : 1.8} />
                 {item.label}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t p-3">
-          <div className="px-3 pb-2">
-            <p className="truncate text-sm font-medium">{name}</p>
-            <p className="text-xs text-muted-foreground">{ROLE_LABEL[role]}</p>
+        <div className="m-3 rounded-[var(--radius-tile)] bg-surface/70 p-3">
+          <div className="flex items-center gap-2.5 px-1 pb-2">
+            <div className="grid size-9 flex-none place-items-center rounded-full bg-black text-sm font-semibold text-white">
+              {name.slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{name}</p>
+              <p className="text-[13px] text-muted">{ROLE_LABEL[role]}</p>
+            </div>
           </div>
           <button
             onClick={signOut}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-10 w-full items-center justify-center gap-2 rounded-full text-sm text-muted hover:bg-black/[.05] hover:text-fg"
           >
             <LogOut className="size-4" /> Sign out
           </button>
         </div>
       </aside>
 
-      {/* Mobile top bar */}
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-card/95 px-4 py-3 backdrop-blur md:hidden">
-        <div className="flex items-center gap-2">
-          <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Fuel className="size-4" />
-          </div>
-          <span className="max-w-[45vw] truncate font-bold">{orgName || "PetroTrack"}</span>
+      {/* Phone top bar */}
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-3 bg-background/85 px-4 py-3 backdrop-blur nav:hidden">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <BrandMark className="size-8 rounded-[10px]" />
+          <span className="truncate font-semibold tracking-[-0.01em]">{orgName || "PetroTrack"}</span>
         </div>
-        <span className="truncate text-xs text-muted-foreground">
-          {name} · {ROLE_LABEL[role]}
+        <span className="shrink-0 rounded-full bg-surface-3 px-3 py-1 text-[13px] text-muted shadow-[var(--shadow-soft)]">
+          {ROLE_LABEL[role]}
         </span>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-4 md:px-8 md:pb-10 md:pt-8">{children}</main>
+      <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 pb-32 pt-3 nav:px-10 nav:pb-16 nav:pt-9">{children}</main>
 
-      {/* Mobile bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
-        <div className="grid" style={{ gridTemplateColumns: `repeat(${primary.length + 1}, minmax(0, 1fr))` }}>
+      {/* Phone bottom tabs */}
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-nav/95 pb-[env(safe-area-inset-bottom)] backdrop-blur nav:hidden"
+      >
+        <div className="flex">
           {primary.map((item) => {
             const Icon = ICONS[item.icon];
+            const on = isActive(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={on ? "page" : undefined}
                 className={cn(
-                  "flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium text-muted-foreground",
-                  isActive(item.href) && "text-primary",
+                  "flex min-h-[64px] flex-1 flex-col items-center justify-center gap-1 text-[12px]",
+                  on ? "font-semibold text-fg" : "text-muted",
                 )}
               >
-                <Icon className="size-6" />
+                <span className={cn("grid h-8 w-14 place-items-center rounded-full", on && "bg-surface-3 shadow-[var(--shadow-soft)]")}>
+                  <Icon className="size-5" strokeWidth={on ? 2.1 : 1.8} />
+                </span>
                 {item.label}
               </Link>
             );
           })}
           <button
             onClick={() => setMoreOpen(true)}
-            className="flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium text-muted-foreground"
+            className="flex min-h-[64px] flex-1 flex-col items-center justify-center gap-1 text-[12px] text-muted"
           >
-            <Menu className="size-6" />
+            <span className="grid h-8 w-14 place-items-center rounded-full">
+              <MoreHorizontal className="size-5" />
+            </span>
             {hasMore ? "More" : "Account"}
           </button>
         </div>
       </nav>
 
-      {/* Mobile "More" sheet */}
+      {/* Phone "More" sheet */}
       {moreOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
-          <button className="absolute inset-0 bg-black/40" aria-label="Close menu" onClick={() => setMoreOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-card p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="font-semibold">Menu</p>
-              <button onClick={() => setMoreOpen(false)} aria-label="Close" className="p-2">
-                <X className="size-5" />
+        <div className="fixed inset-0 z-50 nav:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+          <button className="absolute inset-0 bg-black/30" aria-label="Close menu" onClick={() => setMoreOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-[var(--radius-card)] bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-lift)]">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="card-title">{name}</p>
+                <p className="text-[13px] text-muted">
+                  {ROLE_LABEL[role]} · {orgName}
+                </p>
+              </div>
+              <button
+                onClick={() => setMoreOpen(false)}
+                aria-label="Close"
+                className="grid size-10 place-items-center rounded-full border border-line-strong"
+              >
+                <X className="size-[18px]" />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2.5">
               {items
                 .filter((i) => !primary.includes(i))
                 .map((item) => {
                   const Icon = ICONS[item.icon];
+                  const on = isActive(item.href);
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
                       onClick={() => setMoreOpen(false)}
                       className={cn(
-                        "flex flex-col items-center gap-2 rounded-xl border p-4 text-xs font-medium",
-                        isActive(item.href) && "border-primary text-primary",
+                        "flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-[var(--radius-tile)] bg-surface-3 p-3 text-[13px] font-medium shadow-[var(--shadow-soft)]",
+                        on && "bg-black text-white",
                       )}
                     >
-                      <Icon className="size-6" />
+                      <Icon className="size-6" strokeWidth={1.8} />
                       {item.label}
                     </Link>
                   );
@@ -192,7 +223,7 @@ export function AppShell({
             </div>
             <button
               onClick={signOut}
-              className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border text-sm font-medium"
+              className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-full border border-line-strong text-[15px]"
             >
               <LogOut className="size-4" /> Sign out
             </button>

@@ -28,13 +28,17 @@ export function Modal({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
-      <button className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} />
-      <div className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-card p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl sm:max-w-lg sm:rounded-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="-mr-2 p-2 text-muted-foreground">
-            <X className="size-5" />
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
+      <button className="absolute inset-0 bg-black/30" aria-label="Close" onClick={onClose} />
+      <div className="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-[var(--radius-card)] bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-lift)] sm:max-w-lg sm:rounded-[var(--radius-card)] sm:p-[26px]">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h2 className="card-title">{title}</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="grid size-10 place-items-center rounded-full border border-line-strong text-muted hover:text-fg"
+          >
+            <X className="size-[18px]" />
           </button>
         </div>
         {children}
