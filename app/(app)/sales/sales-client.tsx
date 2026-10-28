@@ -152,7 +152,7 @@ export function SalesClient({
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,460px)_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,460px)_1fr]">
         <Card className={cn("h-fit", needsShift && "pointer-events-none opacity-50")}>
           <CardContent className="pt-5 sm:pt-[26px]">
             <form onSubmit={onSubmit} className="grid gap-6" noValidate>
@@ -209,7 +209,7 @@ export function SalesClient({
                           setMode(m);
                           setQty("");
                         }}
-                        className={cn("!px-4 !py-1.5 !text-sm", mode === m && "on")}
+                        className={cn("!px-4 !py-2.5 !text-sm", mode === m && "on")}
                       >
                         {m === "litres" ? "Litres" : "Shillings"}
                       </button>
@@ -303,7 +303,7 @@ export function SalesClient({
         </Card>
 
         <div className="min-w-0">
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
             <MiniStat label={role === "attendant" ? "Your sales today" : "Sales today"} value={kes(totals.all)} strong />
             <MiniStat label="Cash" value={kes(totals.cash)} />
             <MiniStat label="M-Pesa" value={kes(totals.mpesa)} />
