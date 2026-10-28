@@ -1,16 +1,25 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Droplets, HandCoins, Wrench } from "lucide-react";
 import { getProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { eachDay, resolveRange } from "@/lib/range";
-import { formatDate, kes, litres } from "@/lib/utils";
+import { eachDay, pctChange, previousRange, resolveRange } from "@/lib/range";
+import { formatDate, kes, litres, num } from "@/lib/utils";
 import type { Tank } from "@/lib/types";
 import { DateRangeFilter } from "@/components/date-range-filter";
 import { SalesExpensesChart } from "@/components/sales-expenses-chart";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageHeader, Stat } from "@/components/ui/misc";
+import { InfoTip } from "@/components/ui/info-tip";
+import { Badge, Progress, StatCard } from "@/components/ui/misc";
+
+type Day = { date: string; sales: number; litres?: number; cost_of_fuel?: number; gross_profit?: number; expenses?: number; net_profit?: number };
+
+function greeting() {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Nairobi", hour: "numeric", hour12: false }).format(new Date()));
+  return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -21,92 +30,301 @@ export default async function DashboardPage({
   if (profile.role === "attendant") redirect("/sales");
   const isOwner = profile.role === "owner";
   const { range, from, to } = resolveRange(await searchParams);
+  const prev = previousRange(range, from, to);
   const supabase = await createClient();
 
-  const [summaryRes, expensesRes, { data: trucks }, { data: tanks }, { data: balances }, stockRes] = await Promise.all([
-    // Owner: full P&L per day. Manager: sales only (no cost or profit columns).
-    isOwner
-      ? supabase.from("daily_summary").select("date, sales, cost_of_fuel, gross_profit, expenses, net_profit").gte("date", from).lte("date", to)
-      : supabase.from("daily_sales_summary").select("date, sales").gte("date", from).lte("date", to),
-    isOwner
-      ? Promise.resolve({ data: null })
-      : supabase.from("expenses").select("date, amount").is("deleted_at", null).gte("date", from).lte("date", to),
-    supabase.from("trucks").select("id, status").is("deleted_at", null),
-    supabase.from("tanks").select("*").is("deleted_at", null).order("name"),
-    supabase.from("customer_balances").select("balance, overdue"),
-    isOwner ? supabase.from("stock_value").select("value") : Promise.resolve({ data: null }),
-  ]);
+  const [summaryRes, expensesRes, { data: trucks }, { data: tanks }, { data: fuelTypes }, { data: balances }, stockRes] =
+    await Promise.all([
+      // Owner: full P&L per day. Manager: sales only (no cost or profit columns).
+      isOwner
+        ? supabase.from("daily_summary").select("date, sales, litres, cost_of_fuel, gross_profit, expenses, net_profit").gte("date", prev.from).lte("date", to)
+        : supabase.from("daily_sales_summary").select("date, sales, litres").gte("date", prev.from).lte("date", to),
+      isOwner
+        ? Promise.resolve({ data: null })
+        : supabase.from("expenses").select("date, amount").is("deleted_at", null).gte("date", prev.from).lte("date", to),
+      supabase.from("trucks").select("id, plate_number, status, notes").is("deleted_at", null).order("plate_number"),
+      supabase.from("tanks").select("*").is("deleted_at", null).order("name"),
+      supabase.from("fuel_types").select("id, name"),
+      supabase.from("customer_balances").select("customer_id, name, phone, balance, overdue").order("balance", { ascending: false }),
+      isOwner ? supabase.from("stock_value").select("value") : Promise.resolve({ data: null }),
+    ]);
 
-  type Day = { date: string; sales: number; cost_of_fuel?: number; gross_profit?: number; expenses?: number; net_profit?: number };
   const days = (summaryRes.data ?? []) as Day[];
   const expByDay: Record<string, number> = {};
   if (isOwner) for (const d of days) expByDay[d.date] = Number(d.expenses ?? 0);
   else for (const e of expensesRes.data ?? []) expByDay[e.date] = (expByDay[e.date] ?? 0) + Number(e.amount);
 
-  const sum = (k: keyof Day) => days.reduce((s, d) => s + Number(d[k] ?? 0), 0);
-  const sales = sum("sales");
-  const expenses = Object.values(expByDay).reduce((s, v) => s + v, 0);
+  const inRange = (d: string, a: string, b: string) => d >= a && d <= b;
+  const total = (k: keyof Day, a: string, b: string) => days.filter((d) => inRange(d.date, a, b)).reduce((s, d) => s + Number(d[k] ?? 0), 0);
+  const expTotal = (a: string, b: string) => Object.entries(expByDay).filter(([d]) => inRange(d, a, b)).reduce((s, [, v]) => s + v, 0);
+
+  const now = { sales: total("sales", from, to), litres: total("litres", from, to), profit: total("gross_profit", from, to), net: total("net_profit", from, to), cogs: total("cost_of_fuel", from, to), expenses: expTotal(from, to) };
+  const before = { sales: total("sales", prev.from, prev.to), litres: total("litres", prev.from, prev.to), profit: total("gross_profit", prev.from, prev.to), net: total("net_profit", prev.from, prev.to), expenses: expTotal(prev.from, prev.to) };
+
   const salesByDay = Object.fromEntries(days.map((d) => [d.date, Number(d.sales)]));
   const chart = eachDay(from, to).map((date) => ({ date, sales: salesByDay[date] ?? 0, expenses: expByDay[date] ?? 0 }));
 
-  const truckCount = trucks?.length ?? 0;
-  const activeTrucks = trucks?.filter((t) => t.status === "active").length ?? 0;
-  const owed = (balances ?? []).reduce((s, b) => s + Math.max(0, Number(b.balance)), 0);
-  const overdue = (balances ?? []).reduce((s, b) => s + Number(b.overdue), 0);
+  const allTrucks = trucks ?? [];
+  const activeTrucks = allTrucks.filter((t) => t.status === "active").length;
+  const onTrip = allTrucks.filter((t) => t.status === "on_trip").length;
+  const inMaintenance = allTrucks.filter((t) => t.status === "maintenance");
+  const allTanks = (tanks ?? []) as Tank[];
+  const lowTanks = allTanks.filter((t) => Number(t.current_litres) <= Number(t.low_stock_level));
+  const fuelName = (id: string) => fuelTypes?.find((f) => f.id === id)?.name ?? "";
+  const owing = (balances ?? []).filter((b) => Number(b.balance) > 0);
+  const owed = owing.reduce((s, b) => s + Number(b.balance), 0);
+  const overdueCustomers = (balances ?? []).filter((b) => Number(b.overdue) > 0);
+  const overdue = overdueCustomers.reduce((s, b) => s + Number(b.overdue), 0);
   const stockValue = (stockRes.data ?? []).reduce((s, v) => s + Number(v.value), 0);
-  const lowTanks = ((tanks ?? []) as Tank[]).filter((t) => Number(t.current_litres) <= Number(t.low_stock_level));
 
+  const attention = [
+    ...lowTanks.map((t) => ({
+      key: `tank-${t.id}`,
+      icon: <Droplets className="size-[18px]" />,
+      tone: "bg-yellow text-[#1c1c1a]",
+      title: Number(t.current_litres) <= 0 ? `${t.name} is empty` : `${t.name} is running low`,
+      sub: `${litres(t.current_litres)} of ${fuelName(t.fuel_type_id)} left · alert at ${litres(t.low_stock_level)}`,
+      action: { href: "/purchases", label: "Record delivery" },
+    })),
+    ...overdueCustomers.map((c) => ({
+      key: `cust-${c.customer_id}`,
+      icon: <HandCoins className="size-[18px]" />,
+      tone: "bg-orange text-white",
+      title: `${c.name} is late paying`,
+      sub: `${kes(c.overdue)} overdue · owes ${kes(c.balance)} in total`,
+      action: { href: "/customers", label: "Record payment" },
+    })),
+    ...inMaintenance.map((t) => ({
+      key: `truck-${t.id}`,
+      icon: <Wrench className="size-[18px]" />,
+      tone: "bg-surface-2 text-fg",
+      title: `${t.plate_number} is in the garage`,
+      sub: t.notes ? t.notes : "Marked as in maintenance",
+      action: { href: `/trucks/${t.id}`, label: "View truck" },
+    })),
+  ];
+
+  const firstName = profile.full_name.split(" ")[0];
   const periodLabel = from === to ? formatDate(from) : `${formatDate(from)} – ${formatDate(to)}`;
 
   return (
     <>
-      <PageHeader title="Dashboard" description={periodLabel} />
-      <div className="mb-4">
+      <div className="mb-5 nav:mb-7">
+        <h1 className="page-title">
+          {greeting()}, {firstName}
+        </h1>
+        <p className="mt-1.5 text-[15px] text-muted">Here&apos;s how {profile.org_name || "your business"} is doing · {periodLabel}</p>
+      </div>
+      <div className="mb-5">
         <Suspense>
           <DateRangeFilter range={range} from={from} to={to} />
         </Suspense>
       </div>
 
-      {lowTanks.length > 0 ? (
-        <Link
-          href="/stock"
-          className="mb-4 flex items-start gap-3 rounded-xl border border-destructive/40 bg-red-50 p-4 text-sm text-destructive"
-        >
-          <TriangleAlert className="mt-0.5 size-5 shrink-0" />
-          <div>
-            <p className="font-semibold">Low stock</p>
-            <p>
-              {lowTanks.map((t) => `${t.name}: ${litres(t.current_litres)} (alert at ${litres(t.low_stock_level)})`).join(" · ")}
-            </p>
-          </div>
-        </Link>
-      ) : null}
-
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Sales" value={kes(sales)} />
+      {/* Headline numbers */}
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Sales"
+          caption="Money in from fuel sold"
+          value={kes(now.sales)}
+          change={pctChange(now.sales, before.sales)}
+          changeLabel={prev.label}
+        />
         {isOwner ? (
-          <>
-            <Stat label="Cost of fuel" value={kes(sum("cost_of_fuel"))} sub="Weighted avg landed cost" />
-            <Stat label="Gross profit" value={kes(sum("gross_profit"))} tone={sum("gross_profit") >= 0 ? "positive" : "negative"} />
-          </>
-        ) : null}
-        <Stat label="Expenses" value={kes(expenses)} />
+          <StatCard
+            label="Profit"
+            caption="Sales minus what the fuel cost you"
+            value={kes(now.profit)}
+            change={pctChange(now.profit, before.profit)}
+            changeLabel={prev.label}
+            tone={now.profit < 0 ? "negative" : undefined}
+            tip={
+              <InfoTip>
+                Sales minus the cost of fuel sold. Cost of fuel sold = litres sold × what each litre cost you to buy and
+                bring to the depot (price plus transport). This period: {kes(now.cogs)}.
+              </InfoTip>
+            }
+          />
+        ) : (
+          <StatCard
+            label="Fuel sold"
+            caption="Litres that left the pumps"
+            value={litres(now.litres)}
+            change={pctChange(now.litres, before.litres)}
+            changeLabel={prev.label}
+          />
+        )}
+        <StatCard
+          label="Expenses"
+          caption="Money out on running costs"
+          value={kes(now.expenses)}
+          change={pctChange(now.expenses, before.expenses)}
+          changeLabel={prev.label}
+          costly
+          tip={<InfoTip>Rent, salaries, electricity, repairs and other running costs. Buying fuel is not counted here.</InfoTip>}
+        />
         {isOwner ? (
-          <Stat label="Net profit" value={kes(sum("net_profit"))} tone={sum("net_profit") >= 0 ? "positive" : "negative"} />
-        ) : null}
-        <Stat label="Trucks" value={truckCount} sub={`${activeTrucks} active`} />
-        {isOwner ? <Stat label="Stock value" value={kes(stockValue)} sub="Litres × landed cost" /> : null}
-        <Stat label="Money owed" value={kes(owed)} sub={overdue > 0 ? `${kes(overdue)} overdue` : "Nothing overdue"} />
+          <StatCard
+            label="Net profit"
+            caption="What you keep after all costs"
+            value={kes(now.net)}
+            change={pctChange(now.net, before.net)}
+            changeLabel={prev.label}
+            tone={now.net < 0 ? "negative" : "positive"}
+            tip={<InfoTip>Profit minus expenses. If this is negative, the business spent more than it made in this period.</InfoTip>}
+          />
+        ) : (
+          <StatCard label="Money owed" caption="Customers who bought on credit" value={kes(owed)} />
+        )}
       </div>
 
-      <Card>
+      {/* Needs your attention */}
+      <Card className="mb-5">
+        <CardHeader className="flex-row items-center gap-2.5">
+          <CardTitle>Needs your attention</CardTitle>
+          {attention.length > 0 ? <Badge variant="destructive" className="ml-auto">{attention.length}</Badge> : null}
+        </CardHeader>
+        <CardContent className="pt-1">
+          {attention.length === 0 ? (
+            <p className="py-2 text-[15px] text-muted">All good. No low tanks, late payers or trucks in the garage.</p>
+          ) : (
+            <ul>
+              {attention.map((a, i) => (
+                <li key={a.key} className={`flex flex-wrap items-center gap-3.5 py-3.5 ${i ? "border-t border-line" : ""}`}>
+                  <div className={`grid size-10 flex-none place-items-center rounded-full ${a.tone}`}>{a.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{a.title}</p>
+                    <p className="text-sm text-muted">{a.sub}</p>
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="h-10 w-full sm:w-auto">
+                    <Link href={a.action.href}>{a.action.label}</Link>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Chart */}
+      <Card className="mb-5">
         <CardHeader>
-          <CardTitle>Sales vs expenses</CardTitle>
+          <CardTitle>Money in vs money out</CardTitle>
         </CardHeader>
         <CardContent>
           <SalesExpensesChart data={chart} />
         </CardContent>
       </Card>
+
+      <div className="grid gap-5 lg:grid-cols-[1fr_1.4fr_1fr]">
+        {/* Trucks */}
+        <Card>
+          <CardHeader className="flex-row items-center">
+            <CardTitle>Trucks</CardTitle>
+            <CornerLink href="/trucks" label="Open trucks" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-[34px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{allTrucks.length}</p>
+            <p className="mt-1 text-[15px] text-muted">trucks in total</p>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <MiniCount label="Ready" value={activeTrucks} />
+              <MiniCount label="On a trip" value={onTrip} />
+              <MiniCount label="In garage" value={inMaintenance.length} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Stock by tank */}
+        <Card>
+          <CardHeader className="flex-row items-center">
+            <CardTitle className="flex items-center gap-1.5">
+              Fuel left in tanks
+              {isOwner ? (
+                <InfoTip>
+                  Stock value = litres in each tank × what that fuel cost you on average (price plus transport). It&apos;s
+                  what your fuel is worth at cost, not at the pump price.
+                </InfoTip>
+              ) : null}
+            </CardTitle>
+            <CornerLink href="/stock" label="Open stock" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isOwner ? (
+              <p className="text-[15px] text-muted">
+                Worth <span className="font-semibold text-fg">{kes(stockValue)}</span> at cost
+              </p>
+            ) : null}
+            {allTanks.length === 0 ? (
+              <p className="text-[15px] text-muted">No tanks yet. Add one in Stock.</p>
+            ) : (
+              allTanks.map((t) => {
+                const pct = (Number(t.current_litres) / Number(t.capacity_litres)) * 100;
+                const low = Number(t.current_litres) <= Number(t.low_stock_level);
+                return (
+                  <div key={t.id}>
+                    <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[15px]">
+                      <span className="truncate font-medium">{t.name}</span>
+                      <span className={`shrink-0 tabular-nums ${low ? "font-medium text-orange" : "text-muted"}`}>
+                        {litres(t.current_litres)} · {num(pct, 0)}%
+                      </span>
+                    </div>
+                    <Progress value={pct} tone={low ? "low" : "ok"} />
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Money owed */}
+        <Card>
+          <CardHeader className="flex-row items-center">
+            <CardTitle className="flex items-center gap-1.5">
+              Money owed to you
+              <InfoTip>Fuel customers took on credit and haven&apos;t paid for yet. &quot;Late&quot; means past the days you gave them to pay.</InfoTip>
+            </CardTitle>
+            <CornerLink href="/customers" label="Open customers" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-[34px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{kes(owed)}</p>
+            <p className="mt-1 text-[15px] text-muted">
+              {overdue > 0 ? <span className="font-medium text-orange">{kes(overdue)} is late</span> : "Nothing is late"}
+            </p>
+            {owing.length > 0 ? (
+              <ul className="mt-4 space-y-2">
+                {owing.slice(0, 4).map((b) => (
+                  <li key={b.customer_id} className="inner-box flex items-center justify-between gap-2 py-2.5 text-[15px]">
+                    <span className="truncate">{b.name}</span>
+                    <span className="shrink-0 font-medium tabular-nums">{kes(b.balance)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
     </>
+  );
+}
+
+function CornerLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      title={label}
+      className="ml-auto grid size-10 place-items-center rounded-full border border-line-strong text-fg hover:bg-surface-3"
+    >
+      <ArrowUpRight className="size-4" />
+    </Link>
+  );
+}
+
+function MiniCount({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="inner-box px-2 py-3">
+      <p className="text-xl font-semibold tabular-nums">{value}</p>
+      <p className="text-[13px] text-muted">{label}</p>
+    </div>
   );
 }
