@@ -383,8 +383,9 @@ export function SalesClient({
                   />
                 </div>
                 <p className="text-[13px] text-muted">
-                  {pumpPrice ? `Pump price ${fmt(pumpPrice, currency)} per litre. ` : "No pump price set yet. Type the amount. "}
-                  Leave empty to use it.
+                  {pumpPrice
+                    ? `Pump price ${fmt(pumpPrice, currency)} per litre. Leave empty to use it.`
+                    : "No selling price set for this fuel yet, so type what it was sold for."}
                 </p>
                 {errors.amount ? <p className="text-[13px] text-orange">{errors.amount}</p> : null}
               </div>

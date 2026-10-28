@@ -54,7 +54,7 @@ export function SettingsClient({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
       <Card className="h-fit">
         <CardHeader>
           <CardTitle className="flex items-center gap-1.5">
@@ -186,6 +186,7 @@ function RateForm({ base, code, current }: { base: string; code: string; current
             id={`rate-${code}`}
             inputMode="decimal"
             placeholder={current ? String(current.perBase) : "0"}
+            className="min-w-0"
             value={value}
             onChange={(e) => setValue(e.target.value)}
           />
