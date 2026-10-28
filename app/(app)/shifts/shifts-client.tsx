@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/form-controls";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 
 export type ShiftRow = {
@@ -89,7 +90,7 @@ export function ShiftsClient({
 
   return (
     <>
-      <PageHeader title="Shifts" description={role === "attendant" ? "Your shifts and cash hand-over" : "All attendants' shifts"} />
+      <PageHeader title="Shifts" description={role === "attendant" ? "Start when you arrive. When you leave, count your cash and hand it in." : "Every shift, and whether the cash handed in matched the cash sales."} />
 
       <Card className="mb-6 max-w-xl">
         <CardHeader>
@@ -101,11 +102,11 @@ export function ShiftsClient({
           {openShift ? (
             <form onSubmit={end} className="grid gap-4" noValidate>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg bg-muted p-3">
+                <div className="inner-box">
                   <p className="text-xs text-muted-foreground">Started</p>
                   <p className="font-medium">{formatDateTime(openShift.started_at)}</p>
                 </div>
-                <div className="rounded-lg bg-muted p-3">
+                <div className="inner-box">
                   <p className="text-xs text-muted-foreground">Sales this shift</p>
                   <p className="font-medium">
                     {openShiftSales.count} · {kes(openShiftSales.total)}
@@ -143,14 +144,19 @@ export function ShiftsClient({
               {role !== "attendant" ? <TH>Attendant</TH> : null}
               <TH>Start</TH>
               <TH>End</TH>
-              <TH className="text-right">Expected cash</TH>
+              <TH className="text-right">Cash expected</TH>
               <TH className="text-right">Handed in</TH>
-              <TH>Variance</TH>
+              <TH>
+                <span className="flex items-center gap-1.5">
+                  Short or over
+                  <InfoTip>Cash handed in minus the cash the shift should have collected (cash sales plus cash credit payments). Short means money is missing.</InfoTip>
+                </span>
+              </TH>
             </tr>
           </THead>
           <TBody>
             {shifts.map((s) => (
-              <TR key={s.id} className={cn(s.attendant_id === userId && !s.ended_at && "bg-accent/50")}>
+              <TR key={s.id} className={cn(s.attendant_id === userId && !s.ended_at && "bg-yellow/15")}>
                 {role !== "attendant" ? <TD className="font-medium">{staffName(s.attendant_id)}</TD> : null}
                 <TD>{formatDateTime(s.started_at)}</TD>
                 <TD>{s.ended_at ? formatDateTime(s.ended_at) : "—"}</TD>
@@ -168,16 +174,16 @@ export function ShiftsClient({
       <Modal open={!!result} onClose={() => setResult(null)} title="Shift closed">
         {result ? (
           <div className="grid gap-3">
-            <Row label="Expected cash" value={kes(result.expected_cash)} />
+            <Row label="Cash you should have" value={kes(result.expected_cash)} />
             <Row label="Cash handed in" value={kes(result.cash_handed_in)} />
             <div
               className={cn(
-                "flex items-center justify-between rounded-xl p-4 text-lg font-bold",
-                Number(result.variance) < 0 ? "bg-red-50 text-destructive" : Number(result.variance) > 0 ? "bg-amber-50 text-amber-800" : "bg-accent text-accent-foreground",
+                "flex items-center justify-between rounded-[var(--radius-tile)] p-5 text-lg font-semibold",
+                Number(result.variance) < 0 ? "bg-orange text-white" : Number(result.variance) > 0 ? "bg-yellow text-[#1c1c1a]" : "bg-green text-white",
               )}
             >
-              <span>Variance</span>
-              <span className="tabular-nums">{kes(result.variance)}</span>
+              <span>{Number(result.variance) < 0 ? "Short by" : Number(result.variance) > 0 ? "Over by" : "Balanced"}</span>
+              <span className="tabular-nums">{kes(Math.abs(Number(result.variance)))}</span>
             </div>
             <Button size="lg" onClick={() => setResult(null)}>
               Done
@@ -191,7 +197,7 @@ export function ShiftsClient({
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between rounded-lg bg-muted p-3">
+    <div className="inner-box flex justify-between">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-semibold tabular-nums">{value}</span>
     </div>
