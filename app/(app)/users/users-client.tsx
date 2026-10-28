@@ -68,7 +68,7 @@ export function UsersClient({
         }
       />
       {adminError ? (
-        <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="mb-4 rounded-[var(--radius-tile)] bg-yellow p-4 text-sm text-[#1c1c1a]">
           User management needs SUPABASE_SERVICE_ROLE_KEY on the server ({adminError}).
         </p>
       ) : null}
