@@ -76,7 +76,7 @@ export function LoginForm({
         />
       </Field>
       <div className="-mt-2 text-right">
-        <Link href="/forgot-password" className="text-sm text-primary hover:underline">
+        <Link href="/forgot-password" className="text-sm text-fg underline-offset-4 hover:underline">
           Forgot password?
         </Link>
       </div>

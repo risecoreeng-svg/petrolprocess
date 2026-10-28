@@ -64,7 +64,7 @@ export function SignupForm() {
   if (sentTo) {
     return (
       <div className="grid gap-3 text-center">
-        <MailCheck className="mx-auto size-10 text-primary" />
+        <MailCheck className="mx-auto size-10 text-green" />
         <p className="font-semibold">Check your email</p>
         <p className="text-sm text-muted-foreground">
           We sent a confirmation link to <span className="font-medium text-foreground">{sentTo}</span>. Open it on this

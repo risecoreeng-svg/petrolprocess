@@ -38,14 +38,14 @@ export default function ForgotPasswordPage() {
       title="Reset your password"
       subtitle="We'll email you a link to choose a new one."
       footer={
-        <Link href="/login" className="font-medium text-primary hover:underline">
+        <Link href="/login" className="font-medium text-fg underline-offset-4 hover:underline">
           Back to sign in
         </Link>
       }
     >
       {sent ? (
         <div className="grid gap-3 text-center">
-          <MailCheck className="mx-auto size-10 text-primary" />
+          <MailCheck className="mx-auto size-10 text-green" />
           <p className="text-sm text-muted-foreground">
             If an account exists for <span className="font-medium text-foreground">{email}</span>, a reset link is on its
             way. Open it on this device.

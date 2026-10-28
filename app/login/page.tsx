@@ -15,7 +15,7 @@ export default async function LoginPage({
       footer={
         <>
           New to PetroTrack?{" "}
-          <Link href="/signup" className="font-medium text-primary hover:underline">
+          <Link href="/signup" className="font-medium text-fg underline-offset-4 hover:underline">
             Create a business account
           </Link>
         </>
