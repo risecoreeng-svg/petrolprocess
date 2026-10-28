@@ -44,10 +44,12 @@ const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Manager", a
 export function AppShell({
   role,
   name,
+  orgName,
   children,
 }: {
   role: Role;
   name: string;
+  orgName: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -73,9 +75,11 @@ export function AppShell({
           <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
             <Fuel className="size-5" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-bold leading-tight">PetroTrack</p>
-            <p className="text-xs text-muted-foreground">Fuel depot manager</p>
+            <p className="truncate text-xs text-muted-foreground" title={orgName}>
+              {orgName}
+            </p>
           </div>
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
@@ -116,9 +120,9 @@ export function AppShell({
           <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
             <Fuel className="size-4" />
           </div>
-          <span className="font-bold">PetroTrack</span>
+          <span className="max-w-[45vw] truncate font-bold">{orgName || "PetroTrack"}</span>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="truncate text-xs text-muted-foreground">
           {name} · {ROLE_LABEL[role]}
         </span>
       </header>

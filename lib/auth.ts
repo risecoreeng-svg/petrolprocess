@@ -7,12 +7,14 @@ export type Role = "owner" | "manager" | "attendant";
 
 export type Profile = {
   id: string;
+  org_id: string;
+  org_name: string;
   full_name: string;
   role: Role;
   active: boolean;
 };
 
-/** Current signed-in, active profile, or a redirect to /login. Cached per request. */
+/** Current signed-in, active profile and its organization, or a redirect to /login. Cached per request. */
 export const getProfile = cache(async (): Promise<Profile> => {
   const supabase = await createClient();
   const {
@@ -22,12 +24,20 @@ export const getProfile = cache(async (): Promise<Profile> => {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, full_name, role, active, deleted_at")
+    .select("id, org_id, full_name, role, active, deleted_at, organizations(name)")
     .eq("id", user.id)
     .single();
 
   if (!profile || !profile.active || profile.deleted_at) redirect("/login?inactive=1");
-  return profile as Profile;
+  const org = profile.organizations as unknown as { name: string } | null;
+  return {
+    id: profile.id,
+    org_id: profile.org_id,
+    org_name: org?.name ?? "",
+    full_name: profile.full_name,
+    role: profile.role as Role,
+    active: profile.active,
+  };
 });
 
 /** Server-side page guard. The UI hides links too, but RLS is what actually protects the data. */

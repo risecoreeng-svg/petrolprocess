@@ -132,8 +132,13 @@ export function StockClient({
               <CardTitle>Pump prices</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2">
+              {fuelTypes.some((f) => Number(f.current_selling_price) === 0) ? (
+                <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-900">
+                  Set a pump price for each fuel before recording sales.
+                </p>
+              ) : null}
               {fuelTypes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No fuel types yet. Run the seed or add them in Supabase.</p>
+                <p className="text-sm text-muted-foreground">No fuel types found for your business.</p>
               ) : (
                 fuelTypes.map((f) => (
                   <div key={f.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
