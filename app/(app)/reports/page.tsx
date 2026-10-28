@@ -58,8 +58,8 @@ export default async function ReportsPage({
           { key: "date", label: "Date", type: "date" },
           { key: "litres", label: "Litres", type: "number" },
           { key: "sales", label: "Sales", type: "kes" },
-          { key: "cost_of_fuel", label: "Cost of fuel", type: "kes" },
-          { key: "gross_profit", label: "Gross profit", type: "kes" },
+          { key: "cost_of_fuel", label: "Cost of fuel sold", type: "kes" },
+          { key: "gross_profit", label: "Profit", type: "kes" },
           { key: "expenses", label: "Expenses", type: "kes" },
           { key: "net_profit", label: "Net profit", type: "kes" },
         ],
@@ -126,20 +126,20 @@ export default async function ReportsPage({
   const totalExp = Object.values(expByCat).reduce((s, v) => s + v, 0);
   const plRows: Record<string, string | number>[] = [{ line: "Sales", amount: r2(totalSales) }];
   if (isOwner) {
-    plRows.push({ line: "Less: cost of fuel sold", amount: r2(-cogs) }, { line: "Gross profit", amount: r2(totalSales - cogs) });
+    plRows.push({ line: "Less: cost of fuel sold", amount: r2(-cogs) }, { line: "Profit", amount: r2(totalSales - cogs) });
   }
   for (const c of EXPENSE_CATEGORIES) if (expByCat[c]) plRows.push({ line: `Less: ${labelize(c)}`, amount: r2(-expByCat[c]) });
   plRows.push({ line: "Total expenses", amount: r2(-totalExp) });
   if (isOwner) plRows.push({ line: "Net profit", amount: r2(totalSales - cogs - totalExp) });
   const plReport: Report = {
     key: "pl",
-    title: isOwner ? "Profit & loss" : "Sales & expenses statement",
+    title: isOwner ? "Profit & loss" : "Money in & out",
     columns: [
       { key: "line", label: "", type: "text" },
       { key: "amount", label: "KES", type: "kes" },
     ],
     rows: plRows,
-    emphasise: ["Gross profit", "Net profit", "Sales"],
+    emphasise: ["Profit", "Net profit", "Sales"],
   };
 
   // ---- Per truck (deliveries and expenses within the period) ----
@@ -170,7 +170,7 @@ export default async function ReportsPage({
   const truckReport: Report = {
     key: "truck",
     title: "Per truck",
-    note: isOwner ? "Margin = litres delivered × (current pump price − landed cost). Trip cost is inside landed cost." : undefined,
+    note: isOwner ? "Fuel margin is an estimate: litres the truck brought × (today's pump price − what each litre really cost, transport included)." : undefined,
     columns: isOwner
       ? [
           { key: "truck", label: "Truck", type: "text" },
@@ -178,7 +178,7 @@ export default async function ReportsPage({
           { key: "litres", label: "Litres", type: "number" },
           { key: "fuel_cost", label: "Fuel cost", type: "kes" },
           { key: "trip_cost", label: "Trip cost", type: "kes" },
-          { key: "margin", label: "Margin", type: "kes" },
+          { key: "margin", label: "Fuel margin", type: "kes" },
           { key: "repairs", label: "Repairs", type: "kes" },
           { key: "other_costs", label: "Other", type: "kes" },
           { key: "profit", label: "Profit", type: "kes" },
@@ -210,12 +210,12 @@ export default async function ReportsPage({
       { key: "fuel", label: "Fuel", type: "text" },
       { key: "litres", label: "Litres sold", type: "number" },
       { key: "sales", label: "Sales", type: "kes" },
-      { key: "avg_price", label: "Avg price / L", type: "kes" },
+      { key: "avg_price", label: "Average price / L", type: "kes" },
       ...(isOwner
         ? ([
-            { key: "cost", label: "Cost of fuel", type: "kes" },
-            { key: "gross_profit", label: "Gross profit", type: "kes" },
-            { key: "margin_per_litre", label: "Margin / L", type: "kes" },
+            { key: "cost", label: "Cost of fuel sold", type: "kes" },
+            { key: "gross_profit", label: "Profit", type: "kes" },
+            { key: "margin_per_litre", label: "Profit / L", type: "kes" },
           ] as const)
         : []),
     ],
@@ -226,7 +226,7 @@ export default async function ReportsPage({
 
   return (
     <>
-      <PageHeader title="Reports" description={period} />
+      <PageHeader title="Reports" description={`${period} · download any table as CSV or PDF`} />
       <div className="mb-4">
         <Suspense>
           <DateRangeFilter range={range} from={from} to={to} />

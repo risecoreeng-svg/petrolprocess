@@ -66,14 +66,13 @@ export function ReportsClient({ reports, period, fileSuffix }: { reports: Report
 
   return (
     <>
-      <div className="mb-4 flex gap-1 overflow-x-auto rounded-lg bg-muted p-1">
+      <div className="seg no-scrollbar mb-5 w-fit max-w-full overflow-x-auto">
         {reports.map((r) => (
           <button
             key={r.key}
             onClick={() => setActive(r.key)}
             className={cn(
-              "whitespace-nowrap rounded-md px-3 py-2 text-sm",
-              active === r.key ? "bg-card font-medium shadow-xs" : "text-muted-foreground",
+              active === r.key && "on",
             )}
           >
             {r.title}
@@ -82,7 +81,7 @@ export function ReportsClient({ reports, period, fileSuffix }: { reports: Report
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold">{report.title}</h2>
+        <h2 className="card-title">{report.title}</h2>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportCsv} disabled={report.rows.length === 0}>
             <Download /> CSV
@@ -111,13 +110,13 @@ export function ReportsClient({ reports, period, fileSuffix }: { reports: Report
             {report.rows.map((r, i) => {
               const strong = report.emphasise?.includes(String(r.line));
               return (
-                <TR key={i} className={cn(strong && "bg-muted/50 font-semibold")}>
+                <TR key={i} className={cn(strong && "bg-surface-2 font-semibold")}>
                   {report.columns.map((c) => (
                     <TD
                       key={c.key}
                       className={cn(
                         (c.type === "kes" || c.type === "number") && "text-right tabular-nums",
-                        c.type === "kes" && Number(r[c.key]) < 0 && "text-destructive",
+                        c.type === "kes" && Number(r[c.key]) < 0 && "text-orange",
                       )}
                     >
                       {fmt(r[c.key], c.type)}
@@ -127,7 +126,7 @@ export function ReportsClient({ reports, period, fileSuffix }: { reports: Report
               );
             })}
             {showTotals ? (
-              <TR className="bg-muted/60 font-semibold">
+              <TR className="bg-surface-2 font-semibold">
                 {report.columns.map((c, i) => (
                   <TD key={c.key} className={cn((c.type === "kes" || c.type === "number") && "text-right tabular-nums")}>
                     {i === 0 ? "Total" : c.key in totals ? fmt(totals[c.key], c.type) : ""}
