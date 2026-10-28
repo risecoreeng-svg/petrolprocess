@@ -1,7 +1,7 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { kes } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 
 // Validated colour-blind-safe pair on the cream surface: sales = blue, expenses = orange.
 const SALES = "var(--color-chart-sales)";
@@ -12,7 +12,10 @@ export type ChartPoint = { date: string; sales: number; expenses: number };
 const short = (v: number) =>
   Math.abs(v) >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`;
 
-export function SalesExpensesChart({ data }: { data: ChartPoint[] }) {
+/** Values must already be in `currency` (default: base). */
+export function SalesExpensesChart({ data, currency }: { data: ChartPoint[]; currency?: string }) {
+  const { base, fmt } = useMoney();
+  const money = (v: number) => fmt(v, currency ?? base);
   if (data.every((d) => !d.sales && !d.expenses)) {
     return <p className="py-16 text-center text-[15px] text-muted">No sales or expenses in this period yet.</p>;
   }
@@ -38,7 +41,7 @@ export function SalesExpensesChart({ data }: { data: ChartPoint[] }) {
             <YAxis tickFormatter={short} tickLine={false} axisLine={false} fontSize={12} stroke="#6f6b63" width={44} />
             <Tooltip
               cursor={{ fill: "rgba(28,28,26,0.04)" }}
-              formatter={(value, name) => [kes(Number(value)), name === "sales" ? "Money in" : "Money out"]}
+              formatter={(value, name) => [money(Number(value)), name === "sales" ? "Money in" : "Money out"]}
               contentStyle={{ borderRadius: 14, border: "none", boxShadow: "var(--shadow-lift)", fontSize: 13, background: "#fff" }}
             />
             <Bar dataKey="sales" fill={SALES} radius={[4, 4, 0, 0]} maxBarSize={26} />

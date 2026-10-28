@@ -18,7 +18,7 @@ export type UserRow = { id: string; full_name: string; email: string; role: Role
 
 const ROLE_HELP: Record<Role, string> = {
   owner: "Everything, including profit, cost and users",
-  manager: "Everything except profit/cost figures and users",
+  manager: "Sales manager: stock, sales, customers and what stock cost, but never profit or margins",
   attendant: "Record sales and see their own shifts only",
 };
 
@@ -102,7 +102,7 @@ export function UsersClient({
                     value={u.role}
                     onChange={(e) => changeRole(u, e.target.value as Role)}
                   >
-                    <option value="manager">Manager</option>
+                    <option value="manager">Sales manager</option>
                     <option value="attendant">Attendant</option>
                   </Select>
                 )}
@@ -169,7 +169,7 @@ function CreateUserForm({ onClose }: { onClose: () => void }) {
         <Field label="Role" htmlFor="url" hint={ROLE_HELP[form.role]}>
           <Select id="url" value={form.role} onChange={set("role")}>
             <option value="attendant">Attendant</option>
-            <option value="manager">Manager</option>
+            <option value="manager">Sales manager</option>
           </Select>
         </Field>
         <Button type="submit" size="lg" disabled={pending}>

@@ -6,7 +6,8 @@ import { z } from "zod";
 import { Ban, PackagePlus, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
-import { formatDate, kes, litres, nairobiToday, num } from "@/lib/utils";
+import { formatDate, litres, nairobiToday, num } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 import type { FuelType, Supplier, Tank, Truck } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +63,7 @@ export function PurchasesClient({
   isOwner: boolean;
   filter: { truck: string; supplier: string };
 }) {
+  const { money } = useMoney();
   const router = useRouter();
   const pathname = usePathname();
   const [supplierOpen, setSupplierOpen] = useState(false);
@@ -116,7 +118,7 @@ export function PurchasesClient({
           </div>
           <p className="mb-2 text-sm text-muted-foreground">
             {rows.length} deliveries · {litres(totalLitres)}
-            {isOwner ? ` · ${kes(totalCost)} total cost` : ""}
+            {isOwner ? ` · ${money(totalCost)} total cost` : ""}
           </p>
           {rows.length === 0 ? (
             <EmptyState icon={<PackagePlus />} title="No deliveries yet" description="Record the first fuel delivery with the form." />
@@ -152,7 +154,7 @@ export function PurchasesClient({
                     {isOwner ? (
                       <>
                         <TD className="text-right tabular-nums">{num(r.cost_per_litre, 4)}</TD>
-                        <TD className="text-right tabular-nums">{kes(r.trip_cost)}</TD>
+                        <TD className="text-right tabular-nums">{money(r.trip_cost)}</TD>
                         <TD className="text-right tabular-nums">{num(r.landed_cost_per_litre, 4)}</TD>
                         <TD>
                           <VoidButton id={r.id} label={`${num(r.litres)} L on ${formatDate(r.date)}`} />
@@ -183,6 +185,7 @@ function DeliveryForm({
   tanks: Tank[];
   fuelTypes: FuelType[];
 }) {
+  const { money } = useMoney();
   const { submit, pending, errors } = useSubmit();
   const [date, setDate] = useState(nairobiToday());
   const [truckId, setTruckId] = useState("");
@@ -288,19 +291,19 @@ function DeliveryForm({
           <div className="inner-box grid gap-1.5 text-[15px]">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Fuel cost</span>
-              <span className="tabular-nums">{kes(fuelCost)}</span>
+              <span className="tabular-nums">{money(fuelCost)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Trip cost</span>
-              <span className="tabular-nums">{kes(tripCost)}</span>
+              <span className="tabular-nums">{money(tripCost)}</span>
             </div>
             <div className="flex justify-between font-semibold">
               <span>Total paid</span>
-              <span className="tabular-nums">{kes(fuelCost + tripCost)}</span>
+              <span className="tabular-nums">{money(fuelCost + tripCost)}</span>
             </div>
             <div className="mt-1 flex items-center justify-between border-t border-line pt-2 font-semibold">
               <span className="flex items-center gap-1.5">Real cost per litre <InfoTip>What one litre really cost you once it reached your tank: the fuel price plus the trip cost (driver, truck fuel, tolls), divided by the litres delivered.</InfoTip></span>
-              <span className="tabular-nums">{kes(landed)}</span>
+              <span className="tabular-nums">{money(landed)}</span>
             </div>
           </div>
           {free !== null && l > free ? (

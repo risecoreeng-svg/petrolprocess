@@ -5,6 +5,8 @@ import { resolveRange } from "@/lib/range";
 import { formatDate } from "@/lib/utils";
 import { EXPENSE_CATEGORIES, labelize } from "@/lib/types";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { CurrencySwitcher } from "@/components/currency-switcher";
+import { displayCurrency, getMoneyContext } from "@/lib/money-server";
 import { PageHeader } from "@/components/ui/misc";
 import { ReportsClient, type Report } from "./reports-client";
 
@@ -15,12 +17,13 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; from?: string; to?: string; tab?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; tab?: string; cur?: string }>;
 }) {
   const sp = await searchParams;
   const profile = await requireRole("owner", "manager");
   const isOwner = profile.role === "owner";
   const { range, from, to } = resolveRange(sp);
+  const disp = displayCurrency(await getMoneyContext(), sp.cur);
   const supabase = await createClient();
 
   const [daily, salesRows, purchases, expenses, { data: fuelTypes }, { data: trucks }] = await Promise.all([
@@ -57,11 +60,11 @@ export default async function ReportsPage({
         columns: [
           { key: "date", label: "Date", type: "date" },
           { key: "litres", label: "Litres", type: "number" },
-          { key: "sales", label: "Sales", type: "kes" },
-          { key: "cost_of_fuel", label: "Cost of fuel sold", type: "kes" },
-          { key: "gross_profit", label: "Profit", type: "kes" },
-          { key: "expenses", label: "Expenses", type: "kes" },
-          { key: "net_profit", label: "Net profit", type: "kes" },
+          { key: "sales", label: "Sales", type: "money" },
+          { key: "cost_of_fuel", label: "Cost of fuel sold", type: "money" },
+          { key: "gross_profit", label: "Profit", type: "money" },
+          { key: "expenses", label: "Expenses", type: "money" },
+          { key: "net_profit", label: "Net profit", type: "money" },
         ],
         rows: dailyRows.map((d) => ({
           date: d.date,
@@ -79,11 +82,11 @@ export default async function ReportsPage({
         columns: [
           { key: "date", label: "Date", type: "date" },
           { key: "litres", label: "Litres", type: "number" },
-          { key: "cash_sales", label: "Cash", type: "kes" },
-          { key: "mpesa_sales", label: "M-Pesa", type: "kes" },
-          { key: "credit_sales", label: "Credit", type: "kes" },
-          { key: "sales", label: "Total sales", type: "kes" },
-          { key: "expenses", label: "Expenses", type: "kes" },
+          { key: "cash_sales", label: "Cash", type: "money" },
+          { key: "mobile_sales", label: "Mobile money", type: "money" },
+          { key: "credit_sales", label: "Credit", type: "money" },
+          { key: "sales", label: "Total sales", type: "money" },
+          { key: "expenses", label: "Expenses", type: "money" },
         ],
         rows: [...new Set([...dailyRows.map((d) => d.date), ...Object.keys(expByDay)])].sort().map((date) => {
           const d = dailyRows.find((x) => x.date === date);
@@ -91,7 +94,7 @@ export default async function ReportsPage({
             date,
             litres: n(d?.litres),
             cash_sales: n(d?.cash_sales),
-            mpesa_sales: n(d?.mpesa_sales),
+            mobile_sales: n(d?.mobile_sales),
             credit_sales: n(d?.credit_sales),
             sales: n(d?.sales),
             expenses: expByDay[date] ?? 0,
@@ -136,7 +139,7 @@ export default async function ReportsPage({
     title: isOwner ? "Profit & loss" : "Money in & out",
     columns: [
       { key: "line", label: "", type: "text" },
-      { key: "amount", label: "KES", type: "kes" },
+      { key: "amount", label: disp.code, type: "money" },
     ],
     rows: plRows,
     emphasise: ["Profit", "Net profit", "Sales"],
@@ -176,18 +179,18 @@ export default async function ReportsPage({
           { key: "truck", label: "Truck", type: "text" },
           { key: "deliveries", label: "Trips", type: "number" },
           { key: "litres", label: "Litres", type: "number" },
-          { key: "fuel_cost", label: "Fuel cost", type: "kes" },
-          { key: "trip_cost", label: "Trip cost", type: "kes" },
-          { key: "margin", label: "Fuel margin", type: "kes" },
-          { key: "repairs", label: "Repairs", type: "kes" },
-          { key: "other_costs", label: "Other", type: "kes" },
-          { key: "profit", label: "Profit", type: "kes" },
+          { key: "fuel_cost", label: "Fuel cost", type: "money" },
+          { key: "trip_cost", label: "Trip cost", type: "money" },
+          { key: "margin", label: "Fuel margin", type: "money" },
+          { key: "repairs", label: "Repairs", type: "money" },
+          { key: "other_costs", label: "Other", type: "money" },
+          { key: "profit", label: "Profit", type: "money" },
         ]
       : [
           { key: "truck", label: "Truck", type: "text" },
           { key: "deliveries", label: "Trips", type: "number" },
           { key: "litres", label: "Litres", type: "number" },
-          { key: "truck_expenses", label: "Truck expenses", type: "kes" },
+          { key: "truck_expenses", label: "Truck expenses", type: "money" },
         ],
     rows: truckRows,
   };
@@ -209,13 +212,13 @@ export default async function ReportsPage({
     columns: [
       { key: "fuel", label: "Fuel", type: "text" },
       { key: "litres", label: "Litres sold", type: "number" },
-      { key: "sales", label: "Sales", type: "kes" },
-      { key: "avg_price", label: "Average price / L", type: "kes" },
+      { key: "sales", label: "Sales", type: "money" },
+      { key: "avg_price", label: "Average price / L", type: "money" },
       ...(isOwner
         ? ([
-            { key: "cost", label: "Cost of fuel sold", type: "kes" },
-            { key: "gross_profit", label: "Profit", type: "kes" },
-            { key: "margin_per_litre", label: "Profit / L", type: "kes" },
+            { key: "cost", label: "Cost of fuel sold", type: "money" },
+            { key: "gross_profit", label: "Profit", type: "money" },
+            { key: "margin_per_litre", label: "Profit / L", type: "money" },
           ] as const)
         : []),
     ],
@@ -230,12 +233,16 @@ export default async function ReportsPage({
       <div className="mb-4">
         <Suspense>
           <DateRangeFilter range={range} from={from} to={to} />
+          <div className="mt-3">
+            <CurrencySwitcher current={disp.code} />
+          </div>
         </Suspense>
       </div>
       <ReportsClient
         reports={[dailyReport, monthlyReport, plReport, truckReport, fuelReport]}
         period={period}
         fileSuffix={`${from}_${to}`}
+        display={{ code: disp.code, rate: disp.rate }}
       />
     </>
   );

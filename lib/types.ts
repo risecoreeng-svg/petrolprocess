@@ -26,7 +26,7 @@ export type Customer = {
   credit_terms_days: number;
   balance: number;
 };
-export type PaymentType = "cash" | "mpesa" | "credit";
+export type PaymentType = "cash" | "mobile" | "credit";
 
 export const EXPENSE_CATEGORIES = [
   "salaries",
@@ -51,4 +51,4 @@ export const TRUCK_STATUS_LABEL: Record<TruckStatus, string> = {
   on_trip: "On trip",
 };
 
-export const PAYMENT_LABEL: Record<PaymentType, string> = { cash: "Cash", mpesa: "M-Pesa", credit: "Credit" };
+export const PAYMENT_LABEL: Record<PaymentType, string> = { cash: "Cash", mobile: "Mobile money", credit: "Credit" };

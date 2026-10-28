@@ -21,6 +21,7 @@ export const NAV: NavItem[] = [
   { href: "/reports", label: "Reports", icon: "ChartColumn", roles: ["owner", "manager"] },
   { href: "/users", label: "Users", icon: "UserCog", roles: ["owner"] },
   { href: "/audit", label: "Audit log", icon: "ScrollText", roles: ["owner"] },
+  { href: "/settings", label: "Settings", icon: "Settings", roles: ["owner"] },
 ];
 
 export function navFor(role: Role) {

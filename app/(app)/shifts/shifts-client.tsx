@@ -8,7 +8,8 @@ import { Clock } from "lucide-react";
 import type { Role } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/client";
 import { toNum } from "@/lib/use-submit";
-import { cn, errorMessage, formatDateTime, kes } from "@/lib/utils";
+import { cn, errorMessage, formatDateTime } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/form-controls";
@@ -30,12 +31,13 @@ export type ShiftRow = {
 const endSchema = z.object({ cash: z.number({ error: "Enter the cash you are handing in" }).min(0) });
 
 function VarianceBadge({ v }: { v: number | null }) {
+  const { money } = useMoney();
   if (v === null) return <Badge variant="info">Open</Badge>;
   if (Number(v) === 0) return <Badge>Balanced</Badge>;
   return Number(v) < 0 ? (
-    <Badge variant="destructive">Short {kes(Math.abs(Number(v)))}</Badge>
+    <Badge variant="destructive">Short {money(Math.abs(Number(v)))}</Badge>
   ) : (
-    <Badge variant="warning">Over {kes(v)}</Badge>
+    <Badge variant="warning">Over {money(v)}</Badge>
   );
 }
 
@@ -54,6 +56,7 @@ export function ShiftsClient({
   openShiftSales: { count: number; total: number };
   staff: { id: string; full_name: string }[];
 }) {
+  const { money, base } = useMoney();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [cash, setCash] = useState("");
@@ -75,7 +78,7 @@ export function ShiftsClient({
     const parsed = endSchema.safeParse({ cash: toNum(cash) });
     if (!parsed.success) return setCashError(parsed.error.issues[0].message);
     setCashError(undefined);
-    if (!confirm(`Hand in ${kes(parsed.data.cash)} and close your shift?`)) return;
+    if (!confirm(`Hand in ${money(parsed.data.cash)} and close your shift?`)) return;
     setBusy(true);
     const { data, error } = await createClient()
       .rpc("end_shift", { p_shift: openShift!.id, p_cash_handed_in: parsed.data.cash })
@@ -109,11 +112,16 @@ export function ShiftsClient({
                 <div className="inner-box">
                   <p className="text-xs text-muted-foreground">Sales this shift</p>
                   <p className="font-medium">
-                    {openShiftSales.count} · {kes(openShiftSales.total)}
+                    {openShiftSales.count} · {money(openShiftSales.total)}
                   </p>
                 </div>
               </div>
-              <Field label="Cash handed in (KES)" htmlFor="cash" error={cashError} hint="Count the cash in your hand. M-Pesa and credit sales are not cash.">
+              <Field
+                label={`Cash handed in (${base})`}
+                htmlFor="cash"
+                error={cashError}
+                hint={`Count the cash in your hand. Mobile money and credit sales are not cash. Cash taken in other currencies: add its value in ${base} at today's rate.`}
+              >
                 <Input
                   id="cash"
                   inputMode="decimal"
@@ -160,8 +168,8 @@ export function ShiftsClient({
                 {role !== "attendant" ? <TD className="font-medium">{staffName(s.attendant_id)}</TD> : null}
                 <TD>{formatDateTime(s.started_at)}</TD>
                 <TD>{s.ended_at ? formatDateTime(s.ended_at) : "—"}</TD>
-                <TD className="text-right tabular-nums">{s.expected_cash !== null ? kes(s.expected_cash) : "—"}</TD>
-                <TD className="text-right tabular-nums">{s.cash_handed_in !== null ? kes(s.cash_handed_in) : "—"}</TD>
+                <TD className="text-right tabular-nums">{s.expected_cash !== null ? money(s.expected_cash) : "—"}</TD>
+                <TD className="text-right tabular-nums">{s.cash_handed_in !== null ? money(s.cash_handed_in) : "—"}</TD>
                 <TD>
                   <VarianceBadge v={s.ended_at ? s.variance : null} />
                 </TD>
@@ -174,8 +182,8 @@ export function ShiftsClient({
       <Modal open={!!result} onClose={() => setResult(null)} title="Shift closed">
         {result ? (
           <div className="grid gap-3">
-            <Row label="Cash you should have" value={kes(result.expected_cash)} />
-            <Row label="Cash handed in" value={kes(result.cash_handed_in)} />
+            <Row label="Cash you should have" value={money(result.expected_cash)} />
+            <Row label="Cash handed in" value={money(result.cash_handed_in)} />
             <div
               className={cn(
                 "flex items-center justify-between rounded-[var(--radius-tile)] p-5 text-lg font-semibold",
@@ -183,7 +191,7 @@ export function ShiftsClient({
               )}
             >
               <span>{Number(result.variance) < 0 ? "Short by" : Number(result.variance) > 0 ? "Over by" : "Balanced"}</span>
-              <span className="tabular-nums">{kes(Math.abs(Number(result.variance)))}</span>
+              <span className="tabular-nums">{money(Math.abs(Number(result.variance)))}</span>
             </div>
             <Button size="lg" onClick={() => setResult(null)}>
               Done

@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { formatDate, kes, litres, num } from "@/lib/utils";
+import { formatDate, litres, num } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import { labelize, TRUCK_STATUS_LABEL, type Truck } from "@/lib/types";
 import { Badge, EmptyState, PageHeader, Stat } from "@/components/ui/misc";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -24,6 +25,7 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
   const { id } = await params;
   const profile = await requireRole("owner", "manager");
   const isOwner = profile.role === "owner";
+  const money = (v: number | string | null | undefined) => formatMoney(v, profile.base_currency);
   const supabase = await createClient();
 
   const { data: truck } = await supabase.from("trucks").select("*").eq("id", id).maybeSingle();
@@ -76,17 +78,17 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
         <Stat label="Litres brought" value={litres(totalLitres)} />
         {isOwner && perf ? (
           <>
-            <Stat label="Fuel + trip cost" value={kes(Number(perf.fuel_cost) + Number(perf.trip_cost))} sub={`Trip costs ${kes(perf.trip_cost)}`} />
+            <Stat label="Fuel + trip cost" value={money(Number(perf.fuel_cost) + Number(perf.trip_cost))} sub={`Trip costs ${money(perf.trip_cost)}`} />
             <Stat
               label="Profit"
-              value={kes(perf.profit)}
-              sub={`Fuel margin ${kes(perf.margin)} − repairs ${kes(perf.repair_costs)} − other ${kes(perf.other_truck_costs)}`}
+              value={money(perf.profit)}
+              sub={`Fuel margin ${money(perf.margin)} − repairs ${money(perf.repair_costs)} − other ${money(perf.other_truck_costs)}`}
               tip={<InfoTip>Estimate. Fuel margin = litres this truck brought × (today&apos;s pump price − what each litre really cost). Then repairs and other costs tagged to this truck are taken off.</InfoTip>}
               tone={Number(perf.profit) >= 0 ? "positive" : "negative"}
             />
           </>
         ) : (
-          <Stat label="Truck expenses" value={kes(repairs)} />
+          <Stat label="Truck expenses" value={money(repairs)} />
         )}
       </div>
 
@@ -119,8 +121,8 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
                 {isOwner ? (
                   <>
                     <TD className="text-right tabular-nums">{num(d.cost_per_litre, 4)}</TD>
-                    <TD className="text-right tabular-nums">{kes(d.fuel_cost)}</TD>
-                    <TD className="text-right tabular-nums">{kes(d.trip_cost)}</TD>
+                    <TD className="text-right tabular-nums">{money(d.fuel_cost)}</TD>
+                    <TD className="text-right tabular-nums">{money(d.trip_cost)}</TD>
                     <TD className="text-right tabular-nums">{num(d.landed_cost_per_litre, 4)}</TD>
                   </>
                 ) : null}
@@ -149,7 +151,7 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
                 <TD>{formatDate(e.date)}</TD>
                 <TD>{labelize(e.category)}</TD>
                 <TD className="whitespace-normal">{e.description}</TD>
-                <TD className="text-right tabular-nums">{kes(e.amount)}</TD>
+                <TD className="text-right tabular-nums">{money(e.amount)}</TD>
               </TR>
             ))}
           </TBody>

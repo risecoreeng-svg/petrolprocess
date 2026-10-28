@@ -5,7 +5,8 @@ import { z } from "zod";
 import { Droplets, Pencil, Plus, Tag, TriangleAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
-import { cn, formatDateTime, kes, litres, num } from "@/lib/utils";
+import { cn, formatDateTime, litres, num } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 import type { FuelType, Tank } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +58,7 @@ export function StockClient({
   valueByTank: Record<string, { avg: number; value: number }> | null;
   staff: { id: string; full_name: string }[];
 }) {
+  const { money } = useMoney();
   const [editingTank, setEditingTank] = useState<Tank | "new" | null>(null);
   const [editingPrice, setEditingPrice] = useState<FuelType | null>(null);
   const fuelName = (id: string) => fuelTypes.find((f) => f.id === id)?.name ?? "";
@@ -68,7 +70,7 @@ export function StockClient({
     <>
       <PageHeader
         title="Fuel stock"
-        description={totalValue !== null ? `Your fuel is worth ${kes(totalValue)} at what it cost you` : "How much fuel is left in each tank"}
+        description={totalValue !== null ? `Your fuel is worth ${money(totalValue)} at what it cost you` : "How much fuel is left in each tank"}
         actions={
           <Button variant="outline" onClick={() => setEditingTank("new")}>
             <Plus /> Tank
@@ -115,7 +117,7 @@ export function StockClient({
                   </div>
                   {v ? (
                     <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
-                      Cost {kes(v.avg)}/L on average · worth <span className="font-medium text-fg">{kes(v.value)}</span>
+                      Cost {money(v.avg)}/L on average · worth <span className="font-medium text-fg">{money(v.value)}</span>
                     </p>
                   ) : null}
                 </CardContent>
@@ -145,7 +147,7 @@ export function StockClient({
                   <div key={f.id} className="flex items-center justify-between rounded-[var(--radius-inner)] bg-surface-3 px-4 py-2.5 shadow-[var(--shadow-soft)]">
                     <span className="font-medium">{f.name}</span>
                     <span className="flex items-center gap-2">
-                      <span className="tabular-nums">{kes(f.current_selling_price)}/L</span>
+                      <span className="tabular-nums">{money(f.current_selling_price)}/L</span>
                       <Button size="sm" variant="ghost" onClick={() => setEditingPrice(f)}>
                         <Tag /> Change
                       </Button>
@@ -336,25 +338,55 @@ function TankForm({ tank, fuelTypes, onClose }: { tank: Tank | null; fuelTypes: 
 
 function PriceForm({ fuel, onClose }: { fuel: FuelType; onClose: () => void }) {
   const { submit, pending, errors } = useSubmit();
-  const [price, setPrice] = useState(String(fuel.current_selling_price));
+  const { base, enabled, perBase, money, fmt } = useMoney();
+  const [currency, setCurrency] = useState(base);
+  const rate = perBase(currency) ?? 1;
+  const [price, setPrice] = useState(String(Math.round(Number(fuel.current_selling_price) * 100) / 100));
+  const entered = toNum(price) ?? 0;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Stored in base currency; sales in other currencies convert at the day's rate.
     const ok = await submit(
       priceSchema,
       { current_selling_price: toNum(price) },
-      (data) => createClient().from("fuel_types").update(data).eq("id", fuel.id),
+      (data) => createClient().from("fuel_types").update({ current_selling_price: data.current_selling_price / rate }).eq("id", fuel.id),
       `${fuel.name} price updated`,
     );
     if (ok) onClose();
   }
 
   return (
-    <Modal open onClose={onClose} title={`${fuel.name} pump price`}>
+    <Modal open onClose={onClose} title={`${fuel.name} selling price`}>
       <form onSubmit={onSubmit} className="grid gap-4" noValidate>
-        <Field label="Price per litre (KES)" htmlFor="price" error={errors.current_selling_price} hint="Applies to new sales immediately.">
-          <Input id="price" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className="h-14 text-2xl font-bold" />
+        <Field
+          label="Price per litre"
+          htmlFor="price"
+          error={errors.current_selling_price}
+          hint={currency !== base && entered ? `≈ ${money(entered / rate)} per litre. Applies to new sales immediately.` : "Applies to new sales immediately."}
+        >
+          <div className="flex gap-2">
+            <Select
+              aria-label="Currency"
+              value={currency}
+              onChange={(e) => {
+                const next = e.target.value;
+                setCurrency(next);
+                const r = perBase(next) ?? 1;
+                setPrice(String(Math.round(Number(fuel.current_selling_price) * r * 100) / 100));
+              }}
+              className="h-14 w-[92px] px-3"
+            >
+              {enabled.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+            <Input id="price" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className="h-14 text-2xl font-bold" />
+          </div>
         </Field>
+        <p className="text-[13px] text-muted">Now: {fmt(Number(fuel.current_selling_price) * rate, currency)} per litre</p>
         <Button type="submit" size="lg" disabled={pending}>
           Update price
         </Button>

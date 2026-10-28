@@ -8,7 +8,8 @@ import { Ban, Banknote, Clock, CreditCard, Fuel, Smartphone } from "lucide-react
 import type { Role } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
-import { cn, errorMessage, formatDateTime, kes, litres, num } from "@/lib/utils";
+import { cn, errorMessage, formatDateTime, litres, num } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 import { PAYMENT_LABEL, type Customer, type FuelType, type PaymentType, type Tank } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,7 +26,7 @@ export type SaleRow = {
   total: number;
   payment_type: PaymentType;
   customer_id: string | null;
-  mpesa_ref: string | null;
+  payment_ref: string | null;
   attendant_id: string;
 };
 
@@ -33,18 +34,16 @@ const saleSchema = z
   .object({
     tank_id: z.string().uuid("Pick a fuel type"),
     litres: z.number({ error: "Enter litres" }).positive("Must be more than 0"),
-    payment_type: z.enum(["cash", "mpesa", "credit"]),
+    payment_type: z.enum(["cash", "mobile", "credit"]),
     customer_id: z.string().uuid().nullable(),
-    mpesa_ref: z.string().trim().nullable(),
+    payment_ref: z.string().trim().nullable(),
   })
   .superRefine((v, ctx) => {
     if (v.payment_type === "credit" && !v.customer_id)
       ctx.addIssue({ code: "custom", path: ["customer_id"], message: "Pick the customer" });
-    if (v.payment_type === "mpesa" && !v.mpesa_ref)
-      ctx.addIssue({ code: "custom", path: ["mpesa_ref"], message: "Enter the M-Pesa code" });
   });
 
-const PAY_ICON = { cash: Banknote, mpesa: Smartphone, credit: CreditCard } as const;
+const PAY_ICON = { cash: Banknote, mobile: Smartphone, credit: CreditCard } as const;
 
 export function SalesClient({
   role,
@@ -63,6 +62,7 @@ export function SalesClient({
   openShift: { id: string; started_at: string } | null;
   staff: { id: string; full_name: string }[];
 }) {
+  const { money } = useMoney();
   const router = useRouter();
   const { submit, pending, errors } = useSubmit();
   const [fuelId, setFuelId] = useState(fuelTypes[0]?.id ?? "");
@@ -71,7 +71,7 @@ export function SalesClient({
   const [qty, setQty] = useState("");
   const [payment, setPayment] = useState<PaymentType>("cash");
   const [customerId, setCustomerId] = useState("");
-  const [mpesaRef, setMpesaRef] = useState("");
+  const [payRef, setPayRef] = useState("");
   const [startingShift, setStartingShift] = useState(false);
 
   const fuel = fuelTypes.find((f) => f.id === fuelId);
@@ -89,7 +89,7 @@ export function SalesClient({
   const needsShift = role === "attendant" && !openShift;
 
   const totals = useMemo(() => {
-    const t = { all: 0, cash: 0, mpesa: 0, credit: 0, litres: 0 };
+    const t = { all: 0, cash: 0, mobile: 0, credit: 0, litres: 0 };
     for (const s of sales) {
       t.all += Number(s.total);
       t[s.payment_type] += Number(s.total);
@@ -122,15 +122,15 @@ export function SalesClient({
         litres: saleLitres || undefined,
         payment_type: payment,
         customer_id: payment === "credit" ? customerId || null : null,
-        mpesa_ref: payment === "mpesa" ? mpesaRef.toUpperCase() || null : null,
+        payment_ref: payment === "mobile" ? payRef.toUpperCase() || null : null,
       },
       // Price, cost, attendant and shift are set by the database.
       (data) => createClient().from("sales").insert(data),
-      `Sold ${num(saleLitres)} L · ${kes(total)}`,
+      `Sold ${num(saleLitres)} L · ${money(total)}`,
     );
     if (ok) {
       setQty("");
-      setMpesaRef("");
+      setPayRef("");
       setCustomerId("");
       setPayment("cash");
     }
@@ -240,7 +240,7 @@ export function SalesClient({
               <fieldset className="grid gap-2.5">
                 <legend className="mb-2.5 text-[15px] font-medium">3. How did they pay?</legend>
                 <div className="grid grid-cols-3 gap-2.5">
-                  {(["cash", "mpesa", "credit"] as const).map((p) => {
+                  {(["cash", "mobile", "credit"] as const).map((p) => {
                     const Icon = PAY_ICON[p];
                     return (
                       <Choice key={p} on={payment === p} onClick={() => setPayment(p)} className="min-h-[72px] gap-1.5">
@@ -252,14 +252,14 @@ export function SalesClient({
                 </div>
               </fieldset>
 
-              {payment === "mpesa" ? (
-                <Field label="M-Pesa code" htmlFor="mref" error={errors.mpesa_ref} hint="The code from the customer's M-Pesa message.">
+              {payment === "mobile" ? (
+                <Field label="Mobile money reference (optional)" htmlFor="mref" error={errors.payment_ref} hint="The transaction code from the payment message, if there is one.">
                   <Input
                     id="mref"
                     autoCapitalize="characters"
                     placeholder="e.g. SJK3H7XQ2P"
-                    value={mpesaRef}
-                    onChange={(e) => setMpesaRef(e.target.value)}
+                    value={payRef}
+                    onChange={(e) => setPayRef(e.target.value)}
                   />
                 </Field>
               ) : null}
@@ -268,7 +268,7 @@ export function SalesClient({
                   label="Customer"
                   htmlFor="cust"
                   error={errors.customer_id}
-                  hint={available !== null ? `They can still take ${kes(available)} on credit` : "Only customers allowed to buy on credit are listed."}
+                  hint={available !== null ? `They can still take ${money(available)} on credit` : "Only customers allowed to buy on credit are listed."}
                 >
                   <Select id="cust" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
                     <option value="">Choose customer…</option>
@@ -292,7 +292,7 @@ export function SalesClient({
                     {num(saleLitres)} L × {num(price)}
                   </span>
                 </div>
-                <div className="text-[28px] font-semibold tabular-nums">{kes(total)}</div>
+                <div className="text-[28px] font-semibold tabular-nums">{money(total)}</div>
               </div>
 
               <Button type="submit" size="xl" variant="yellow" disabled={pending || needsShift}>
@@ -304,10 +304,10 @@ export function SalesClient({
 
         <div className="min-w-0">
           <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
-            <MiniStat label={role === "attendant" ? "Your sales today" : "Sales today"} value={kes(totals.all)} strong />
-            <MiniStat label="Cash" value={kes(totals.cash)} />
-            <MiniStat label="M-Pesa" value={kes(totals.mpesa)} />
-            <MiniStat label="Credit" value={kes(totals.credit)} />
+            <MiniStat label={role === "attendant" ? "Your sales today" : "Sales today"} value={money(totals.all)} strong />
+            <MiniStat label="Cash" value={money(totals.cash)} />
+            <MiniStat label="Mobile money" value={money(totals.mobile)} />
+            <MiniStat label="Credit" value={money(totals.credit)} />
           </div>
           <p className="mb-3 text-[15px] text-muted">
             {sales.length} {sales.length === 1 ? "sale" : "sales"} today · {litres(totals.litres)}
@@ -325,14 +325,14 @@ export function SalesClient({
                     <p className="truncate text-[13px] text-muted">
                       {formatDateTime(s.created_at)}
                       {s.customer_id ? ` · ${name.customer(s.customer_id)}` : ""}
-                      {s.mpesa_ref ? ` · ${s.mpesa_ref}` : ""}
+                      {s.payment_ref ? ` · ${s.payment_ref}` : ""}
                       {role !== "attendant" ? ` · ${name.staff(s.attendant_id)}` : ""}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="flex flex-col items-end gap-1">
-                      <p className="font-semibold tabular-nums">{kes(s.total)}</p>
-                      <Badge variant={s.payment_type === "credit" ? "warning" : s.payment_type === "mpesa" ? "info" : "secondary"}>
+                      <p className="font-semibold tabular-nums">{money(s.total)}</p>
+                      <Badge variant={s.payment_type === "credit" ? "warning" : s.payment_type === "mobile" ? "info" : "secondary"}>
                         {PAYMENT_LABEL[s.payment_type]}
                       </Badge>
                     </div>

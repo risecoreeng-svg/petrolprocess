@@ -15,6 +15,8 @@ import {
   PackagePlus,
   Receipt,
   ScrollText,
+  Settings,
+  TriangleAlert,
   Truck,
   UserCog,
   X,
@@ -24,6 +26,8 @@ import type { Role } from "@/lib/auth";
 import { navFor } from "@/lib/nav";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { describeRate, type MoneyContextValue } from "@/lib/currency";
+import { MoneyProvider } from "@/components/money-provider";
 
 const ICONS: Record<string, LucideIcon> = {
   ChartColumn,
@@ -35,11 +39,13 @@ const ICONS: Record<string, LucideIcon> = {
   PackagePlus,
   Receipt,
   ScrollText,
+  Settings,
+  TriangleAlert,
   Truck,
   UserCog,
 };
 
-const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Manager", attendant: "Attendant" };
+export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Sales manager", attendant: "Attendant" };
 
 /** Black rounded square with a fuel drop: the PetroTrack mark. */
 export function BrandMark({ className }: { className?: string }) {
@@ -54,13 +60,16 @@ export function AppShell({
   role,
   name,
   orgName,
+  money,
   children,
 }: {
   role: Role;
   name: string;
   orgName: string;
+  money: MoneyContextValue;
   children: React.ReactNode;
 }) {
+  const staleRates = Object.entries(money.rates).filter(([, r]) => r.stale);
   const pathname = usePathname();
   const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -139,7 +148,23 @@ export function AppShell({
         </span>
       </header>
 
-      <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 pb-32 pt-3 nav:px-10 nav:pb-16 nav:pt-9">{children}</main>
+      <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 pb-32 pt-3 nav:px-10 nav:pb-16 nav:pt-9">
+        {staleRates.length > 0 && role !== "attendant" ? (
+          <div className="mb-5 flex flex-wrap items-center gap-3 rounded-[var(--radius-tile)] bg-yellow px-4 py-3 text-[15px] text-[#1c1c1a]">
+            <TriangleAlert className="size-[18px] shrink-0" />
+            <p className="min-w-0 flex-1">
+              {staleRates.map(([code, r]) => `${describeRate(money.base, code, r.perBase)}${r.placeholder ? " (example rate)" : ` (from ${r.date})`}`).join(" · ")}
+              . {role === "owner" ? "Update to the rate you actually use today." : "Ask the owner to update today's rate."}
+            </p>
+            {role === "owner" ? (
+              <Link href="/settings" className="inline-flex h-10 items-center rounded-full bg-black px-4 text-sm font-medium text-white">
+                Update rates
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
+        <MoneyProvider value={money}>{children}</MoneyProvider>
+      </main>
 
       {/* Phone bottom tabs */}
       <nav

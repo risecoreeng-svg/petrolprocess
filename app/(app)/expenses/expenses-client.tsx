@@ -6,7 +6,8 @@ import { z } from "zod";
 import { Ban, Receipt } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
-import { formatDate, kes, nairobiToday } from "@/lib/utils";
+import { formatDate, nairobiToday } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 import { EXPENSE_CATEGORIES, labelize, type Truck } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +20,8 @@ export type ExpenseRow = {
   date: string;
   category: string;
   amount: number;
+  currency: string;
+  original_amount: number;
   truck_id: string | null;
   description: string | null;
 };
@@ -26,7 +29,8 @@ export type ExpenseRow = {
 const schema = z.object({
   date: z.iso.date("Pick a date"),
   category: z.enum(EXPENSE_CATEGORIES, { error: "Pick a category" }),
-  amount: z.number({ error: "Enter the amount" }).positive("Must be more than 0"),
+  currency: z.string().min(3),
+  original_amount: z.number({ error: "Enter the amount" }).positive("Must be more than 0"),
   truck_id: z.string().uuid().nullable(),
   description: z.string().trim().max(500).nullable(),
 });
@@ -46,6 +50,7 @@ export function ExpensesClient({
   filter: { from: string; to: string; category: string; truck: string };
   defaults: { monthStart: string; weekStart: string; today: string };
 }) {
+  const { money, fmt, base } = useMoney();
   const router = useRouter();
   const pathname = usePathname();
   const plate = (id: string | null) => trucks.find((t) => t.id === id)?.plate_number ?? "";
@@ -102,13 +107,13 @@ export function ExpensesClient({
 
           <div className="mb-4 rounded-[var(--radius-tile)] bg-surface-3 p-5 shadow-[var(--shadow-soft)]">
             <p className="text-[13px] text-muted">Money out in this period</p>
-            <p className="mt-0.5 text-[28px] font-semibold tracking-[-0.02em] tabular-nums">{kes(total)}</p>
+            <p className="mt-0.5 text-[28px] font-semibold tracking-[-0.02em] tabular-nums">{money(total)}</p>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               {Object.entries(byCategory)
                 .sort((a, b) => b[1] - a[1])
                 .map(([c, v]) => (
                   <span key={c}>
-                    {labelize(c)}: <span className="text-foreground">{kes(v)}</span>
+                    {labelize(c)}: <span className="text-foreground">{money(v)}</span>
                   </span>
                 ))}
             </div>
@@ -135,7 +140,16 @@ export function ExpensesClient({
                     <TD>{labelize(r.category)}</TD>
                     <TD>{plate(r.truck_id)}</TD>
                     <TD className="max-w-64 truncate">{r.description}</TD>
-                    <TD className="text-right tabular-nums">{kes(r.amount)}</TD>
+                    <TD className="text-right tabular-nums">
+                      {r.currency !== base ? (
+                        <>
+                          {fmt(r.original_amount, r.currency)}
+                          <span className="block text-[13px] text-muted">{money(r.amount)}</span>
+                        </>
+                      ) : (
+                        money(r.amount)
+                      )}
+                    </TD>
                     {isOwner ? (
                       <TD>
                         <VoidExpense id={r.id} />
@@ -153,6 +167,8 @@ export function ExpensesClient({
 }
 
 function ExpenseForm({ trucks }: { trucks: Truck[] }) {
+  const { base, enabled, perBase, money } = useMoney();
+  const [currency, setCurrency] = useState(base);
   const { submit, pending, errors } = useSubmit();
   const [date, setDate] = useState(nairobiToday());
   const [category, setCategory] = useState("");
@@ -164,7 +180,7 @@ function ExpenseForm({ trucks }: { trucks: Truck[] }) {
     e.preventDefault();
     const ok = await submit(
       schema,
-      { date, category, amount: toNum(amount), truck_id: truckId || null, description: description || null },
+      { date, category, currency, original_amount: toNum(amount), truck_id: truckId || null, description: description || null },
       (data) => createClient().from("expenses").insert(data),
       "Expense recorded",
     );
@@ -186,8 +202,22 @@ function ExpenseForm({ trucks }: { trucks: Truck[] }) {
             <Field label="Date" htmlFor="edate" error={errors.date}>
               <Input id="edate" type="date" max={nairobiToday()} value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
-            <Field label="Amount (KES)" htmlFor="eamt" error={errors.amount}>
-              <Input id="eamt" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Field
+              label="Amount"
+              htmlFor="eamt"
+              error={errors.original_amount}
+              hint={currency !== base && toNum(amount) && perBase(currency) ? `≈ ${money((toNum(amount) ?? 0) / perBase(currency)!)}` : undefined}
+            >
+              <div className="flex gap-2">
+                <Select aria-label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className="w-[92px] px-3">
+                  {enabled.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </Select>
+                <Input id="eamt" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+              </div>
             </Field>
           </div>
           <Field label="Category" htmlFor="ecat" error={errors.category}>

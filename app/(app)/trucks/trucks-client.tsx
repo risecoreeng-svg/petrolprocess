@@ -6,7 +6,8 @@ import { z } from "zod";
 import { Pencil, Plus, Truck as TruckIcon, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
-import { kes, litres } from "@/lib/utils";
+import { litres } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 import { TRUCK_STATUS_LABEL, type Driver, type Truck, type TruckStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
@@ -50,6 +51,7 @@ export function TrucksClient({
   perf: Record<string, TruckPerf>;
   isOwner: boolean;
 }) {
+  const { money } = useMoney();
   const [editing, setEditing] = useState<Truck | "new" | null>(null);
   const [driverOpen, setDriverOpen] = useState(false);
   const driverName = (id: string | null) => drivers.find((d) => d.id === id)?.name ?? "No driver";
@@ -106,7 +108,7 @@ export function TrucksClient({
                   <div className="inner-box px-2 py-3">
                     {isOwner ? (
                       <p className={`font-semibold tabular-nums ${(p?.profit ?? 0) < 0 ? "text-orange" : ""}`}>
-                        {kes(p?.profit ?? 0).replace("KES", "").trim()}
+                        {money(p?.profit ?? 0)}
                       </p>
                     ) : (
                       <p className="font-semibold">—</p>

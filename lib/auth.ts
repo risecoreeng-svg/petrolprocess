@@ -9,6 +9,7 @@ export type Profile = {
   id: string;
   org_id: string;
   org_name: string;
+  base_currency: string;
   full_name: string;
   role: Role;
   active: boolean;
@@ -24,16 +25,17 @@ export const getProfile = cache(async (): Promise<Profile> => {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, org_id, full_name, role, active, deleted_at, organizations(name)")
+    .select("id, org_id, full_name, role, active, deleted_at, organizations(name, base_currency)")
     .eq("id", user.id)
     .single();
 
   if (!profile || !profile.active || profile.deleted_at) redirect("/login?inactive=1");
-  const org = profile.organizations as unknown as { name: string } | null;
+  const org = profile.organizations as unknown as { name: string; base_currency: string } | null;
   return {
     id: profile.id,
     org_id: profile.org_id,
     org_name: org?.name ?? "",
+    base_currency: org?.base_currency ?? "USD",
     full_name: profile.full_name,
     role: profile.role as Role,
     active: profile.active,

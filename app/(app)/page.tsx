@@ -5,9 +5,12 @@ import { ArrowUpRight, Droplets, HandCoins, Wrench } from "lucide-react";
 import { getProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { eachDay, pctChange, previousRange, resolveRange } from "@/lib/range";
-import { formatDate, kes, litres, num } from "@/lib/utils";
+import { formatDate, litres, num } from "@/lib/utils";
+import { formatMoney } from "@/lib/currency";
 import type { Tank } from "@/lib/types";
 import { DateRangeFilter } from "@/components/date-range-filter";
+import { CurrencySwitcher } from "@/components/currency-switcher";
+import { displayCurrency, getMoneyContext } from "@/lib/money-server";
 import { SalesExpensesChart } from "@/components/sales-expenses-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,12 +27,16 @@ function greeting() {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; cur?: string }>;
 }) {
   const profile = await getProfile();
   if (profile.role === "attendant") redirect("/sales");
   const isOwner = profile.role === "owner";
-  const { range, from, to } = resolveRange(await searchParams);
+  const sp = await searchParams;
+  const { range, from, to } = resolveRange(sp);
+  // Everything is stored in base currency; the switcher converts at today's rate for display.
+  const disp = displayCurrency(await getMoneyContext(), sp.cur);
+  const money = (v: number | string | null | undefined) => formatMoney(Number(v ?? 0) * disp.rate, disp.code);
   const prev = previousRange(range, from, to);
   const supabase = await createClient();
 
@@ -62,7 +69,11 @@ export default async function DashboardPage({
   const before = { sales: total("sales", prev.from, prev.to), litres: total("litres", prev.from, prev.to), profit: total("gross_profit", prev.from, prev.to), net: total("net_profit", prev.from, prev.to), expenses: expTotal(prev.from, prev.to) };
 
   const salesByDay = Object.fromEntries(days.map((d) => [d.date, Number(d.sales)]));
-  const chart = eachDay(from, to).map((date) => ({ date, sales: salesByDay[date] ?? 0, expenses: expByDay[date] ?? 0 }));
+  const chart = eachDay(from, to).map((date) => ({
+    date,
+    sales: (salesByDay[date] ?? 0) * disp.rate,
+    expenses: (expByDay[date] ?? 0) * disp.rate,
+  }));
 
   const allTrucks = trucks ?? [];
   const activeTrucks = allTrucks.filter((t) => t.status === "active").length;
@@ -91,7 +102,7 @@ export default async function DashboardPage({
       icon: <HandCoins className="size-[18px]" />,
       tone: "bg-orange text-white",
       title: `${c.name} is late paying`,
-      sub: `${kes(c.overdue)} overdue · owes ${kes(c.balance)} in total`,
+      sub: `${money(c.overdue)} overdue · owes ${money(c.balance)} in total`,
       action: { href: "/customers", label: "Record payment" },
     })),
     ...inMaintenance.map((t) => ({
@@ -115,9 +126,10 @@ export default async function DashboardPage({
         </h1>
         <p className="mt-1.5 text-[15px] text-muted">Here&apos;s how {profile.org_name || "your business"} is doing · {periodLabel}</p>
       </div>
-      <div className="mb-5">
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <Suspense>
           <DateRangeFilter range={range} from={from} to={to} />
+          <CurrencySwitcher current={disp.code} />
         </Suspense>
       </div>
 
@@ -126,7 +138,7 @@ export default async function DashboardPage({
         <StatCard
           label="Sales"
           caption="Money in from fuel sold"
-          value={kes(now.sales)}
+          value={money(now.sales)}
           change={pctChange(now.sales, before.sales)}
           changeLabel={prev.label}
         />
@@ -134,14 +146,14 @@ export default async function DashboardPage({
           <StatCard
             label="Profit"
             caption="Sales minus what the fuel cost you"
-            value={kes(now.profit)}
+            value={money(now.profit)}
             change={pctChange(now.profit, before.profit)}
             changeLabel={prev.label}
             tone={now.profit < 0 ? "negative" : undefined}
             tip={
               <InfoTip>
                 Sales minus the cost of fuel sold. Cost of fuel sold = litres sold × what each litre cost you to buy and
-                bring to the depot (price plus transport). This period: {kes(now.cogs)}.
+                bring to the depot (price plus transport). This period: {money(now.cogs)}.
               </InfoTip>
             }
           />
@@ -157,7 +169,7 @@ export default async function DashboardPage({
         <StatCard
           label="Expenses"
           caption="Money out on running costs"
-          value={kes(now.expenses)}
+          value={money(now.expenses)}
           change={pctChange(now.expenses, before.expenses)}
           changeLabel={prev.label}
           costly
@@ -167,14 +179,14 @@ export default async function DashboardPage({
           <StatCard
             label="Net profit"
             caption="What you keep after all costs"
-            value={kes(now.net)}
+            value={money(now.net)}
             change={pctChange(now.net, before.net)}
             changeLabel={prev.label}
             tone={now.net < 0 ? "negative" : "positive"}
             tip={<InfoTip>Profit minus expenses. If this is negative, the business spent more than it made in this period.</InfoTip>}
           />
         ) : (
-          <StatCard label="Money owed" caption="Customers who bought on credit" value={kes(owed)} />
+          <StatCard label="Money owed" caption="Customers who bought on credit" value={money(owed)} />
         )}
       </div>
 
@@ -212,7 +224,7 @@ export default async function DashboardPage({
           <CardTitle>Money in vs money out</CardTitle>
         </CardHeader>
         <CardContent>
-          <SalesExpensesChart data={chart} />
+          <SalesExpensesChart data={chart} currency={disp.code} />
         </CardContent>
       </Card>
 
@@ -251,7 +263,7 @@ export default async function DashboardPage({
           <CardContent className="space-y-4">
             {isOwner ? (
               <p className="text-[15px] text-muted">
-                Worth <span className="font-semibold text-fg">{kes(stockValue)}</span> at cost
+                Worth <span className="font-semibold text-fg">{money(stockValue)}</span> at cost
               </p>
             ) : null}
             {allTanks.length === 0 ? (
@@ -286,16 +298,16 @@ export default async function DashboardPage({
             <CornerLink href="/customers" label="Open customers" />
           </CardHeader>
           <CardContent>
-            <p className="text-[34px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{kes(owed)}</p>
+            <p className="text-[34px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{money(owed)}</p>
             <p className="mt-1 text-[15px] text-muted">
-              {overdue > 0 ? <span className="font-medium text-orange">{kes(overdue)} is late</span> : "Nothing is late"}
+              {overdue > 0 ? <span className="font-medium text-orange">{money(overdue)} is late</span> : "Nothing is late"}
             </p>
             {owing.length > 0 ? (
               <ul className="mt-4 space-y-2">
                 {owing.slice(0, 4).map((b) => (
                   <li key={b.customer_id} className="inner-box flex items-center justify-between gap-2 py-2.5 text-[15px]">
                     <span className="truncate">{b.name}</span>
-                    <span className="shrink-0 font-medium tabular-nums">{kes(b.balance)}</span>
+                    <span className="shrink-0 font-medium tabular-nums">{money(b.balance)}</span>
                   </li>
                 ))}
               </ul>

@@ -18,7 +18,7 @@ export default async function ExpensesPage({
 
   let q = supabase
     .from("expenses")
-    .select("id, date, category, amount, truck_id, description, created_by")
+    .select("id, date, category, amount, currency, original_amount, truck_id, description, created_by")
     .is("deleted_at", null)
     .gte("date", from)
     .lte("date", to);

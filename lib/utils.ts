@@ -5,17 +5,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const kesFormatter = new Intl.NumberFormat("en-KE", {
-  style: "currency",
-  currency: "KES",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 const numberFormatter = new Intl.NumberFormat("en-KE", { maximumFractionDigits: 2 });
-
-export function kes(value: number | string | null | undefined) {
-  return kesFormatter.format(Number(value ?? 0));
-}
 
 export function litres(value: number | string | null | undefined) {
   return `${numberFormatter.format(Number(value ?? 0))} L`;

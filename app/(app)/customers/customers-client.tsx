@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { CurrencySwitcher } from "@/components/currency-switcher";
 import { z } from "zod";
 import { Ban, HandCoins, Pencil, Plus, TriangleAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
-import { cn, formatDate, kes, nairobiToday } from "@/lib/utils";
+import { cn, formatDate, nairobiToday } from "@/lib/utils";
+import { useMoney } from "@/components/money-provider";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/form-controls";
 import { Badge, EmptyState, PageHeader, Stat } from "@/components/ui/misc";
@@ -29,7 +31,9 @@ export type PaymentRow = {
   id: string;
   customer_id: string;
   amount: number;
-  method: "cash" | "mpesa";
+  currency: string;
+  original_amount: number;
+  method: "cash" | "mobile";
   date: string;
   received_by: string | null;
 };
@@ -43,8 +47,9 @@ const customerSchema = z.object({
 
 const paymentSchema = z.object({
   customer_id: z.string().uuid("Pick the customer"),
-  amount: z.number({ error: "Enter the amount" }).positive("Must be more than 0"),
-  method: z.enum(["cash", "mpesa"]),
+  currency: z.string().min(3),
+  original_amount: z.number({ error: "Enter the amount" }).positive("Must be more than 0"),
+  method: z.enum(["cash", "mobile"]),
   date: z.iso.date(),
 });
 
@@ -53,12 +58,17 @@ export function CustomersClient({
   payments,
   staff,
   isOwner,
+  display,
 }: {
+  display: { code: string; rate: number };
   balances: BalanceRow[];
   payments: PaymentRow[];
   staff: { id: string; full_name: string }[];
   isOwner: boolean;
 }) {
+  const { fmt, base } = useMoney();
+  // Balances are kept in base currency; shown in the chosen currency at today's rate.
+  const money = (v: number | string | null | undefined) => fmt(Number(v ?? 0) * display.rate, display.code);
   const [editing, setEditing] = useState<BalanceRow | "new" | null>(null);
   const [paying, setPaying] = useState<BalanceRow | null>(null);
   const owed = balances.reduce((s, b) => s + Math.max(0, Number(b.balance)), 0);
@@ -79,9 +89,15 @@ export function CustomersClient({
         }
       />
 
+      <div className="mb-5">
+        <Suspense>
+          <CurrencySwitcher current={display.code} />
+        </Suspense>
+      </div>
+
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <Stat label="Money owed" value={kes(owed)} />
-        <Stat label="Late" value={kes(overdueTotal)} sub={`${overdue.length} ${overdue.length === 1 ? "customer" : "customers"}`} tip={<InfoTip>Money still unpaid after the number of days you gave the customer to pay.</InfoTip>} tone={overdueTotal > 0 ? "negative" : undefined} />
+        <Stat label="Money owed" value={money(owed)} />
+        <Stat label="Late" value={money(overdueTotal)} sub={`${overdue.length} ${overdue.length === 1 ? "customer" : "customers"}`} tip={<InfoTip>Money still unpaid after the number of days you gave the customer to pay.</InfoTip>} tone={overdueTotal > 0 ? "negative" : undefined} />
         <Stat label="Credit customers" value={balances.length} />
       </div>
 
@@ -99,7 +115,7 @@ export function CustomersClient({
                   <span className="text-muted-foreground"> · {b.credit_terms_days}-day terms</span>
                 </span>
                 <span className="flex items-center gap-2">
-                  <span className="font-semibold tabular-nums text-orange">{kes(b.overdue)}</span>
+                  <span className="font-semibold tabular-nums text-orange">{money(b.overdue)}</span>
                   <Button size="sm" variant="outline" onClick={() => setPaying(b)}>
                     Pay
                   </Button>
@@ -131,10 +147,10 @@ export function CustomersClient({
                   {Number(b.overdue) > 0 ? <Badge variant="destructive">Late</Badge> : null}
                 </div>
                 <p className={cn("mt-3 text-[28px] font-semibold tracking-[-0.02em] tabular-nums", Number(b.balance) > 0 && "text-orange")}>
-                  {kes(b.balance)}
+                  {money(b.balance)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  owed · can owe up to {kes(b.credit_limit)} ({Math.round(used)}% used) · paid {kes(b.total_paid)} so far
+                  owed · can owe up to {money(b.credit_limit)} ({Math.round(used)}% used) · paid {money(b.total_paid)} so far
                 </p>
                 <div className="mt-3 flex gap-2">
                   <Button size="sm" className="flex-1" onClick={() => setPaying(b)} disabled={Number(b.balance) <= 0}>
@@ -170,9 +186,9 @@ export function CustomersClient({
               <TR key={p.id}>
                 <TD>{formatDate(p.date)}</TD>
                 <TD>{customerName(p.customer_id)}</TD>
-                <TD>{p.method === "mpesa" ? "M-Pesa" : "Cash"}</TD>
+                <TD>{p.method === "mobile" ? "Mobile money" : "Cash"}</TD>
                 <TD>{staffName(p.received_by)}</TD>
-                <TD className="text-right tabular-nums">{kes(p.amount)}</TD>
+                <TD className="text-right tabular-nums">{p.currency !== base ? fmt(p.original_amount, p.currency) : money(p.amount)}</TD>
                 {isOwner ? (
                   <TD>
                     <VoidPayment id={p.id} />
@@ -191,6 +207,7 @@ export function CustomersClient({
 }
 
 function CustomerForm({ customer, onClose }: { customer: BalanceRow | null; onClose: () => void }) {
+  const { base } = useMoney();
   const { submit, pending, errors } = useSubmit();
   const [name, setName] = useState(customer?.name ?? "");
   const [phone, setPhone] = useState(customer?.phone ?? "");
@@ -222,7 +239,7 @@ function CustomerForm({ customer, onClose }: { customer: BalanceRow | null; onCl
           <Input id="cphone" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Credit limit (KES)" htmlFor="climit" error={errors.credit_limit}>
+          <Field label={`Credit limit (${base})`} htmlFor="climit" error={errors.credit_limit}>
             <Input id="climit" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} />
           </Field>
           <Field label="Days to pay" htmlFor="cterms" error={errors.credit_terms_days}>
@@ -238,21 +255,24 @@ function CustomerForm({ customer, onClose }: { customer: BalanceRow | null; onCl
 }
 
 function PaymentForm({ customer, customers, onClose }: { customer: BalanceRow; customers: BalanceRow[]; onClose: () => void }) {
+  const { money, base, enabled, perBase, fmt } = useMoney();
+  const [currency, setCurrency] = useState(base);
   const { submit, pending, errors } = useSubmit();
   const [customerId, setCustomerId] = useState(customer.customer_id);
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState<"cash" | "mpesa">("mpesa");
+  const [method, setMethod] = useState<"cash" | "mobile">("mobile");
   const selected = customers.find((c) => c.customer_id === customerId);
-  const amt = toNum(amount) ?? 0;
+  const rate = perBase(currency) ?? 1;
+  const amt = (toNum(amount) ?? 0) / rate; // in base currency
   const after = selected ? Number(selected.balance) - amt : 0;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const ok = await submit(
       paymentSchema,
-      { customer_id: customerId, amount: toNum(amount), method, date: nairobiToday() },
+      { customer_id: customerId, currency, original_amount: toNum(amount), method, date: nairobiToday() },
       (data) => createClient().from("credit_payments").insert(data),
-      `Payment of ${kes(amt)} recorded`,
+      `Payment of ${money(amt)} recorded`,
     );
     if (ok) onClose();
   }
@@ -264,16 +284,30 @@ function PaymentForm({ customer, customers, onClose }: { customer: BalanceRow; c
           <Select id="pcust" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
             {customers.map((c) => (
               <option key={c.customer_id} value={c.customer_id}>
-                {c.name} ({kes(c.balance)})
+                {c.name} ({money(c.balance)}{currency !== base ? ` · ${fmt(Number(c.balance) * rate, currency)}` : ""})
               </option>
             ))}
           </Select>
         </Field>
-        <Field label="Amount (KES)" htmlFor="pamt" error={errors.amount}>
-          <Input id="pamt" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-14 text-2xl font-bold" />
+        <Field
+          label="Amount paid"
+          htmlFor="pamt"
+          error={errors.original_amount}
+          hint={currency !== base && amt ? `≈ ${money(amt)}` : undefined}
+        >
+          <div className="flex gap-2">
+            <Select aria-label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className="h-14 w-[92px] px-3">
+              {enabled.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+            <Input id="pamt" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-14 text-2xl font-bold" />
+          </div>
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          {(["mpesa", "cash"] as const).map((m) => (
+          {(["mobile", "cash"] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -283,14 +317,14 @@ function PaymentForm({ customer, customers, onClose }: { customer: BalanceRow; c
                 method === m ? "bg-black text-white shadow-[var(--shadow-lift)]" : "bg-surface-3 shadow-[var(--shadow-soft)]",
               )}
             >
-              {m === "mpesa" ? "M-Pesa" : "Cash"}
+              {m === "mobile" ? "Mobile money" : "Cash"}
             </button>
           ))}
         </div>
         {selected ? (
           <div className="inner-box flex justify-between text-[15px]">
             <span className="text-muted-foreground">Balance after payment</span>
-            <span className={cn("font-semibold tabular-nums", after < 0 && "text-orange")}>{kes(after)}</span>
+            <span className={cn("font-semibold tabular-nums", after < 0 && "text-orange")}>{money(after)}</span>
           </div>
         ) : null}
         {after < 0 ? <p className="text-[15px] text-orange">That&apos;s more than they owe.</p> : null}
