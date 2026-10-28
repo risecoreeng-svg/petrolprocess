@@ -63,7 +63,7 @@ export function ExpensesClient({
 
   return (
     <>
-      <PageHeader title="Expenses" description="Running costs of the depot and trucks" />
+      <PageHeader title="Expenses" description="Running costs: rent, salaries, power, repairs. Buying fuel goes under Deliveries." />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_1fr]">
         <ExpenseForm trucks={trucks} />
 
@@ -73,7 +73,7 @@ export function ExpensesClient({
               Today
             </Button>
             <Button size="sm" variant="outline" onClick={() => setFilter({ from: defaults.weekStart, to: defaults.today })}>
-              7 days
+              Last 7 days
             </Button>
             <Button size="sm" variant="outline" onClick={() => setFilter({ from: defaults.monthStart, to: defaults.today })}>
               This month
@@ -100,9 +100,9 @@ export function ExpensesClient({
             </Select>
           </div>
 
-          <div className="mb-3 rounded-xl border bg-card p-3">
-            <p className="text-xs text-muted-foreground">Total for period</p>
-            <p className="text-xl font-bold tabular-nums">{kes(total)}</p>
+          <div className="mb-4 rounded-[var(--radius-tile)] bg-surface-3 p-5 shadow-[var(--shadow-soft)]">
+            <p className="text-[13px] text-muted">Money out in this period</p>
+            <p className="mt-0.5 text-[28px] font-semibold tracking-[-0.02em] tabular-nums">{kes(total)}</p>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               {Object.entries(byCategory)
                 .sort((a, b) => b[1] - a[1])
