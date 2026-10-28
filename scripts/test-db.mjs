@@ -191,9 +191,10 @@ const B_BEFORE = await bSnapshot();
 
 // =====================================================================================
 // Profit maths and business rules (inside org A)
+// Deliveries go through add_stock() (owner and sales manager only).
 const purchase = (litres, cpl, trip) => `
-  insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_cost) values
-    ('${A_SUP}', '${A_TRUCK}', '${A_TANK}', ${litres}, ${cpl}, ${trip});`;
+  select add_stock(p_fuel_type_id := '${A_PETROL}', p_litres := ${litres}, p_cost_per_litre := ${cpl},
+    p_tank_id := '${A_TANK}', p_supplier_id := '${A_SUP}', p_truck_id := '${A_TRUCK}', p_trip_cost := ${trip});`;
 const avgCost = async () => Number((await one(`select avg_cost_per_litre a from tank_costing where tank_id = '${A_TANK}'`)).a);
 const tankLitres = async () => Number((await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l);
 
@@ -211,27 +212,28 @@ await asUser(A_OWNER);
 await db.exec(purchase(5000, 160, 10000)); // landed 162
 await asAdmin();
 const expAvg2 = (10000 * 152 + 5000 * 162) / 15000;
-check("Case 2: weighted avg (10k@152 + 5k@162)/15k", await avgCost(), expAvg2.toFixed(4));
+check("Case 2: weighted avg (10k@152 + 5k@162)/15k", await avgCost(), expAvg2.toFixed(6));
 check("Case 2: tank litres", await tankLitres(), 15000);
 
 await db.exec(`insert into shifts(id, org_id, attendant_id) values ('${A_SHIFT}', '${ORG_A}', '${A_ATT}');`);
 await asUser(A_ATT);
-await db.exec(`insert into sales(tank_id, litres, price_per_litre, payment_type) values ('${A_TANK}', 1000, 1, 'cash');`);
+await db.exec(`insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 1000, 'cash');`);
 await asAdmin();
 const s1 = await one(`select total, cost_total, price_per_litre, shift_id from sales where org_id = '${ORG_A}'`);
-check("Case 3: attendant price forced to pump price (tried 1.00)", s1.price_per_litre, 180);
+check("Case 3: no amount entered → pump price used (USD)", s1.price_per_litre, 180);
 check("Case 3: sales 1,000 L x 180", s1.total, 180000);
-const avg4 = Number(expAvg2.toFixed(4));
-check("Case 3: cost of fuel sold 1,000 x 155.3333", s1.cost_total, (1000 * avg4).toFixed(2));
+// Average cost is kept to 6 decimals in base currency.
+const avg4 = Number(expAvg2.toFixed(6));
+check("Case 3: cost of fuel sold 1,000 x 155.333333", s1.cost_total, (1000 * avg4).toFixed(2));
 checkTrue("Case 3: sale attached to attendant's open shift", s1.shift_id === A_SHIFT);
 await asUser(A_MANAGER);
 await db.exec(`insert into expenses(category, amount) values ('electricity', 5000);`);
 await asUser(A_OWNER);
 const ds = await one(`select sum(sales) s, sum(gross_profit) g, sum(net_profit) n from daily_summary`);
-check("Case 3: daily_summary gross profit 180,000 - 155,333.30 (org A only)", ds.g, 180000 - 1000 * avg4);
+check("Case 3: daily_summary gross profit 180,000 - 155,333.33 (org A only)", ds.g, 180000 - 1000 * avg4);
 check("Case 3: daily_summary net profit (gross - 5,000 expenses)", ds.n, 180000 - 1000 * avg4 - 5000);
 const sv = await one(`select sum(value) value from stock_value`);
-check("Case 4: stock value 14,000 L x 155.3333 (org A only)", sv.value, (14000 * avg4).toFixed(2));
+check("Case 4: stock value 14,000 L x 155.333333 (org A only)", sv.value, (14000 * avg4).toFixed(2));
 await asAdmin();
 
 await asUser(A_OWNER);
@@ -240,31 +242,33 @@ await asAdmin();
 const expAvg5 = (14000 * avg4 + 6000 * 158) / 20000;
 check("Case 5: weighted avg (14k@155.3333 + 6k@158)/20k", await avgCost(), expAvg5.toFixed(4));
 await asUser(A_OWNER);
-await db.exec(`insert into sales(tank_id, litres, price_per_litre, payment_type) values ('${A_TANK}', 2000, 185, 'cash');`);
+await db.exec(`insert into sales(tank_id, litres, original_price_per_litre, payment_type) values ('${A_TANK}', 2000, 185, 'cash');`);
 await asAdmin();
 const s2 = await one(`select total, cost_total from sales where litres = 2000 and org_id = '${ORG_A}'`);
 check("Case 5: second sale gross profit 2,000 x (185 - 156.1333)", Number(s2.total) - Number(s2.cost_total),
-  (370000 - 2000 * Number(expAvg5.toFixed(4))).toFixed(2));
+  (370000 - 2000 * Number(expAvg5.toFixed(6))).toFixed(2));
 
 section = "Business rules";
 await asUser(A_OWNER);
-await expectError("Sale above tank stock is rejected",
-  `insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 999999, 'cash');`, "Insufficient stock");
+await expectError("A sale cannot exceed the stock in the tank",
+  `insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 999999, 'cash');`, "Not enough fuel");
 await expectError("Credit sale without customer is rejected",
   `insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 10, 'credit');`, "need a customer");
 await expectError("Credit sale over limit is rejected (600 L x 180 > 100,000)",
   `insert into sales(tank_id, litres, payment_type, customer_id) values ('${A_TANK}', 600, 'credit', '${A_CUST}');`, "Credit limit exceeded");
-await expectError("M-Pesa sale without reference is rejected",
-  `insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 10, 'mpesa');`, "check constraint");
-await expectError("Purchase without truck is rejected",
-  `insert into purchases(supplier_id, tank_id, litres, cost_per_litre) values ('${A_SUP}', '${A_TANK}', 100, 150);`, "null value");
+const mob = (await db.query(`insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 10, 'mobile') returning id`)).rows[0];
+checkTrue("Mobile money sale without a reference is allowed", !!mob);
+await expectError("Cancelling a sale needs a reason", `update sales set deleted_at = now() where id = '${mob.id}'`, "Give a reason");
+await db.exec(`update sales set deleted_at = now(), void_reason = 'Test sale' where id = '${mob.id}'`);
+await expectError("Adding stock without a truck is rejected",
+  `select add_stock(p_fuel_type_id := '${A_PETROL}', p_litres := 100, p_cost_per_litre := 150, p_tank_id := '${A_TANK}', p_supplier_id := '${A_SUP}')`, "Choose or add a truck");
 await asAdmin();
 
 await db.exec(`insert into sales(id, org_id, tank_id, litres, payment_type, customer_id, attendant_id) values
   ('a8000000-0000-0000-0000-000000000001', '${ORG_A}', '${A_TANK}', 500, 'credit', '${A_CUST}', '${A_OWNER}');`);
 check("Credit: balance after 500 L credit sale", (await one(`select balance from customers where id = '${A_CUST}'`)).balance, 90000);
 await asUser(A_MANAGER);
-await db.exec(`insert into credit_payments(customer_id, amount, method) values ('${A_CUST}', 30000, 'mpesa');`);
+await db.exec(`insert into credit_payments(customer_id, amount, method) values ('${A_CUST}', 30000, 'mobile');`);
 await asAdmin();
 check("Credit: balance after 30,000 payment", (await one(`select balance from customers where id = '${A_CUST}'`)).balance, 60000);
 await asUser(A_MANAGER);
@@ -273,13 +277,13 @@ await expectError("Credit: overpayment is rejected",
 await asAdmin();
 const litresBeforeVoid = await tankLitres();
 await asUser(A_OWNER);
-await db.exec(`update sales set deleted_at = now() where id = 'a8000000-0000-0000-0000-000000000001';`);
+await db.exec(`update sales set deleted_at = now(), void_reason = 'Customer cancelled' where id = 'a8000000-0000-0000-0000-000000000001';`);
 await asAdmin();
 check("Void: credit sale void restores tank litres", await tankLitres(), litresBeforeVoid + 500);
 check("Void: credit sale void reduces balance by 90,000", (await one(`select balance from customers where id = '${A_CUST}'`)).balance, -30000);
 await expectError("Soft delete: hard DELETE is blocked", `delete from sales;`, "Hard delete is not allowed");
 checkTrue("Audit: sale void logged as SOFT_DELETE with org A",
-  (await count(`select count(*) n from audit_log where table_name = 'sales' and action = 'SOFT_DELETE' and org_id = '${ORG_A}'`)) === 1);
+  (await count(`select count(*) n from audit_log where table_name = 'sales' and action = 'SOFT_DELETE' and org_id = '${ORG_A}' and record_id = 'a8000000-0000-0000-0000-000000000001'`)) === 1);
 await expectError("Audit: audit_log cannot be edited", `update audit_log set action = 'X';`, "append-only");
 
 section = "Roles inside one org";
@@ -287,16 +291,19 @@ await asUser(A_ATT);
 checkTrue("Attendant cannot read sales base table (cost hidden)", (await count(`select count(*) n from sales`)) === 0);
 checkTrue("Attendant sees only own sales in sales_safe", (await count(`select count(*) n from sales_safe`)) === 1);
 checkTrue("Attendant cannot read daily_summary", (await count(`select count(*) n from daily_summary`)) === 0);
-await expectError("Attendant cannot record a delivery", purchase(10, 150, 0), "row-level security");
+await expectError("An attendant cannot add stock", purchase(10, 150, 0), "Only the owner or a sales manager");
+await expectError("An attendant cannot insert deliveries directly either",
+  `insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre) values ('${A_SUP}', '${A_TRUCK}', '${A_TANK}', 1, 1)`, "permission denied");
 await expectError("Attendant cannot set tank litres directly", `update tanks set current_litres = 1;`, "permission denied");
 await asUser(A_MANAGER);
 checkTrue("Manager cannot read tank cost basis", (await count(`select count(*) n from tank_costing`)) === 0);
-checkTrue("Manager cannot read purchase costs (base table)", (await count(`select count(*) n from purchases`)) === 0);
+checkTrue("Sales manager can see what was paid for stock", (await count(`select count(*) n from purchases where cost_per_litre > 0`)) === 3);
 checkTrue("Manager sees org A deliveries via purchases_safe", (await count(`select count(*) n from purchases_safe`)) === 3);
 checkTrue("Manager cannot read stock_value / truck_performance",
   (await count(`select count(*) n from stock_value`)) === 0 && (await count(`select count(*) n from truck_performance`)) === 0);
 checkTrue("Manager cannot read audit log", (await count(`select count(*) n from audit_log`)) === 0);
-checkTrue("Manager cannot void a sale", (await db.query(`update sales set deleted_at = now() returning id`)).rows.length === 0);
+checkTrue("Sales manager cannot void a sale by editing it directly", (await db.query(`update sales set deleted_at = now(), void_reason = 'x' returning id`)).rows.length === 0);
+checkTrue("Sales manager cannot read profit (sale cost) columns", (await count(`select count(*) n from sales`)) === 0);
 checkTrue("Manager cannot change staff roles",
   (await db.query(`update profiles set role = 'attendant' where id = '${A_ATT}' returning id`)).rows.length === 0);
 await asUser(A_OWNER);
@@ -322,6 +329,105 @@ const sh = await one(`select * from end_shift('${A_SHIFT}', 179500)`);
 await asAdmin();
 check("Expected cash = cash sales in shift", sh.expected_cash, 180000);
 check("Variance = 179,500 - 180,000", sh.variance, -500);
+
+// =====================================================================================
+// Multi-currency (base USD) and the add-stock / scheduled-delivery flow, inside org A.
+section = "Multi-currency";
+let SDG_SALE, SDG_SALE2;
+await asAdmin();
+checkTrue("Organization base currency defaults to USD", (await one(`select base_currency c from organizations where id = '${ORG_A}'`)).c === "USD");
+checkTrue("Sign-up seeds placeholder SDG and SSP rates flagged 'update me'",
+  (await count(`select count(*) n from exchange_rates where org_id = '${ORG_A}' and is_placeholder`)) === 2);
+await asUser(A_MANAGER);
+await expectError("Only the owner can set exchange rates", `select set_exchange_rate('SDG', 2500)`, "Only the owner");
+await asUser(A_OWNER);
+await db.exec(`select set_exchange_rate('SDG', 2500)`);
+SDG_SALE = (await one(`insert into sales(tank_id, litres, payment_type, currency, original_total)
+  values ('${A_TANK}', 100, 'cash', 'SDG', 450000) returning id`)).id;
+await asAdmin();
+const sd = await one(`select total, fx_rate, original_total, currency, cost_total, cost_per_litre from sales where id = '${SDG_SALE}'`);
+check("Sale of 450,000 SDG at 1 USD = 2,500 SDG is stored as 180.00 USD", sd.total, 180);
+checkTrue("The sale keeps its original currency, amount and the rate used",
+  sd.currency === "SDG" && Number(sd.original_total) === 450000 && Number(sd.fx_rate) === 2500);
+const avgBefore = Number(expAvg5.toFixed(6));
+check("Profit is computed in USD: 180.00 − 100 L × average USD cost", Number(sd.total) - Number(sd.cost_total),
+  (180 - Number((100 * Number(sd.cost_per_litre)).toFixed(2))).toFixed(2));
+check("…and the USD cost per litre is the tank's weighted average", sd.cost_per_litre, avgBefore.toFixed(4));
+
+await asUser(A_OWNER);
+await db.exec(`select set_exchange_rate('SDG', 3000)`);
+SDG_SALE2 = (await one(`insert into sales(tank_id, litres, payment_type, currency, original_total)
+  values ('${A_TANK}', 100, 'cash', 'SDG', 450000) returning id`)).id;
+await asAdmin();
+check("An old sale keeps its old rate after the rate changes (still 180.00 USD)",
+  (await one(`select total from sales where id = '${SDG_SALE}'`)).total, 180);
+check("The same 450,000 SDG at the new rate (3,000) is 150.00 USD",
+  (await one(`select total from sales where id = '${SDG_SALE2}'`)).total, 150);
+await asUser(A_OWNER);
+await expectError("A currency the business hasn't enabled is rejected",
+  `insert into sales(tank_id, litres, payment_type, currency, original_total) values ('${A_TANK}', 1, 'cash', 'KES', 100)`, "KES is not enabled");
+
+section = "Add stock and sales flow";
+const A_DIESEL = await (async () => { await asAdmin(); return FT(ORG_A, "Diesel"); })();
+await asUser(A_OWNER);
+await db.exec(`select set_exchange_rate('SSP', 5000)`);
+// Sales manager adds diesel for the first time: the tank, truck and price are created in one step.
+await asUser(A_MANAGER);
+await db.exec(`select add_stock(p_fuel_type_id := '${A_DIESEL}', p_litres := 2000, p_currency := 'SSP',
+  p_cost_total := 10000000, p_selling_price := 7500, p_new_tank_name := 'Diesel tank', p_new_tank_capacity := 10000,
+  p_supplier_id := '${A_SUP}', p_new_truck_plate := 'kbb  222b')`);
+await asAdmin();
+const dTank = await one(`select id, current_litres from tanks where org_id = '${ORG_A}' and name = 'Diesel tank'`);
+const dPurchase = await one(`select currency, original_total, cost_per_litre, fuel_cost from purchases where tank_id = '${dTank.id}'`);
+checkTrue("Adding stock for a fuel with no tank creates the tank", !!dTank);
+check("The new tank holds the 2,000 L delivered", dTank.current_litres, 2000);
+check("10,000,000 SSP for 2,000 L at 1 USD = 5,000 SSP is 1.00 USD per litre", dPurchase.cost_per_litre, 1);
+checkTrue("The delivery keeps its SSP amount", dPurchase.currency === "SSP" && Number(dPurchase.original_total) === 10000000);
+check("Selling price of 7,500 SSP/L is stored as 1.50 USD/L", (await one(`select current_selling_price p from fuel_types where id = '${A_DIESEL}'`)).p, 1.5);
+checkTrue("A new truck typed during add-stock is created (plate tidied)",
+  (await count(`select count(*) n from trucks where org_id = '${ORG_A}' and plate_number = 'KBB 222B'`)) === 1);
+
+await asUser(A_MANAGER);
+await db.exec(`insert into sales(tank_id, litres, payment_type) values ('${dTank.id}', 500, 'cash')`);
+await asAdmin();
+const dSale = await one(`select total, cost_total from sales where tank_id = '${dTank.id}' order by created_at limit 1`);
+checkTrue("Stock added is sellable immediately", !!dSale);
+check("Diesel sale: 500 L × 1.50 USD = 750.00 USD", dSale.total, 750);
+check("Profit on it in USD: 750.00 − 500 L × 1.00 = 250.00", Number(dSale.total) - Number(dSale.cost_total), 250);
+await asUser(A_MANAGER);
+await expectError("A sale cannot exceed stock (1,600 L asked, 1,500 L left)",
+  `insert into sales(tank_id, litres, payment_type) values ('${dTank.id}', 1600, 'cash')`, "Not enough fuel");
+
+// (A sales manager can't read the sales table, so no RETURNING here.)
+await db.exec(`insert into sales(tank_id, litres, payment_type, delivery_date, delivery_status)
+  values ('${dTank.id}', 100, 'cash', current_date + 2, 'scheduled')`);
+await asAdmin();
+const schedRow = await one(`select id, delivery_status, delivered_at from sales where tank_id = '${dTank.id}' and delivery_status = 'scheduled'`);
+check("A scheduled sale takes the litres out straight away (1,500 → 1,400)",
+  (await one(`select current_litres l from tanks where id = '${dTank.id}'`)).l, 1400);
+checkTrue("Scheduled sale is waiting for delivery", schedRow && !schedRow.delivered_at);
+await asUser(A_MANAGER);
+await db.exec(`select mark_sale_delivered('${schedRow.id}')`);
+await asAdmin();
+checkTrue("Marking it delivered records when", !!(await one(`select delivered_at from sales where id = '${schedRow.id}'`)).delivered_at);
+await asUser(A_MANAGER);
+await db.exec(`insert into sales(tank_id, litres, payment_type, delivery_date, delivery_status)
+  values ('${dTank.id}', 200, 'cash', current_date + 3, 'scheduled')`);
+await asAdmin();
+const toCancel = (await one(`select id from sales where tank_id = '${dTank.id}' and delivery_status = 'scheduled' and deleted_at is null`)).id;
+await asUser(A_MANAGER);
+await expectError("Cancelling needs a reason", `select void_sale('${toCancel}', '  ')`, "Give a reason");
+await db.exec(`select void_sale('${toCancel}', 'Customer changed their mind')`);
+await asAdmin();
+check("Cancelling puts the litres back (1,200 → 1,400)", (await one(`select current_litres l from tanks where id = '${dTank.id}'`)).l, 1400);
+checkTrue("The cancel reason is kept", (await one(`select void_reason r from sales where id = '${toCancel}'`)).r === "Customer changed their mind");
+await asUser(A_ATT);
+await expectError("An attendant cannot cancel a sale", `select void_sale('${toCancel}', 'x')`, "Only the owner or a sales manager");
+
+await asUser(A_MANAGER);
+await db.exec(`insert into expenses(category, currency, original_amount) values ('rent', 'SDG', 300000)`);
+await asAdmin();
+check("Expense of 300,000 SDG at 3,000 is 100.00 USD", (await one(`select amount from expenses where original_amount = 300000`)).amount, 100);
 
 // A fresh open shift, so the attendant's sale attempts reach the org checks.
 await asUser(A_ATT);
@@ -364,15 +470,14 @@ for (const [label, uid] of [["owner", A_OWNER], ["manager", A_MANAGER], ["attend
   await expectError("Cannot close org B's shift", `select * from end_shift('${B_SHIFT}', 0)`, "No open shift found");
 
   if (label !== "attendant") {
-    await expectError("Delivery with org B's truck is rejected", `
-      insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre) values ('${A_SUP}', '${B_TRUCK}', '${A_TANK}', 1, 1)`,
-      "Truck not found");
-    await expectError("Delivery with org B's supplier is rejected", `
-      insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre) values ('${B_SUP}', '${A_TRUCK}', '${A_TANK}', 1, 1)`,
-      "Supplier not found");
-    await expectError("Delivery into org B's tank is rejected", `
-      insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre) values ('${A_SUP}', '${A_TRUCK}', '${B_TANK}', 1, 1)`,
-      "Tank not found");
+    const stock = (tank, sup, truck, fuel = A_PETROL) => `select add_stock(p_fuel_type_id := '${fuel}', p_litres := 1, p_cost_per_litre := 1,
+      p_tank_id := '${tank}', p_supplier_id := '${sup}', p_truck_id := '${truck}')`;
+    await expectError("Adding stock with org B's truck is rejected", stock(A_TANK, A_SUP, B_TRUCK), "Truck not found");
+    await expectError("Adding stock from org B's supplier is rejected", stock(A_TANK, B_SUP, A_TRUCK), "Supplier not found");
+    await expectError("Adding stock into org B's tank is rejected", stock(B_TANK, A_SUP, A_TRUCK), "Tank not found");
+    await expectError("Adding stock of org B's fuel type is rejected", stock(A_TANK, A_SUP, A_TRUCK, B_PETROL), "Fuel type not found");
+    await expectError("Cannot cancel org B's sale", `select void_sale('${B_SALE}', 'x')`, "Sale not found");
+    await expectError("Cannot mark org B's sale delivered", `select mark_sale_delivered('${B_SALE}')`, "Scheduled sale not found");
     await expectError("Dip reading on org B's tank is rejected",
       `insert into stock_adjustments(tank_id, dip_litres, reason, system_litres) values ('${B_TANK}', 1, 'x', 0)`, "Tank not found");
     await expectError("Expense tagged to org B's truck is rejected",
@@ -422,7 +527,9 @@ checkTrue("Org A daily_summary / monthly_summary / daily_sales_summary exclude o
   const d = Number((await one(`select sum(sales) s from daily_summary`)).s);
   const m = Number((await one(`select sum(sales) s from monthly_summary`)).s);
   const ds2 = Number((await one(`select sum(sales) s from daily_sales_summary`)).s);
-  const own = 180000 + 370000;
+  await asAdmin();
+  const own = Number((await one(`select sum(total) s from sales where org_id = '${ORG_A}' and deleted_at is null`)).s);
+  await asUser(A_OWNER);
   return d === own && m === own && ds2 === own;
 })());
 
@@ -437,6 +544,44 @@ await asUser(A_MANAGER);
 checkTrue("Deactivated manager sees nothing", (await count(`select count(*) n from trucks`)) === 0 && (await count(`select count(*) n from purchases_safe`)) === 0);
 await expectError("Deactivated manager cannot insert", `insert into drivers(name) values ('x')`, "not linked to an active organization");
 await asAdmin();
+
+// =====================================================================================
+// Upgrade path: migration 005 applied on top of a database that already has data
+// (this is what happens on the hosted project).
+section = "Upgrade from single-currency data";
+{
+  const up = new PGlite();
+  await up.exec(AUTH_STUB);
+  const files = readdirSync(join(root, "supabase/migrations")).sort();
+  for (const f of files.slice(0, 4)) await up.exec(readFileSync(join(root, "supabase/migrations", f), "utf8"));
+  await up.exec(`insert into auth.users(id, email, raw_user_meta_data) values ('${A_OWNER}', 'old@x.ke', '{"business_name":"Old Co"}')`);
+  const org = (await up.query(`select org_id from profiles`)).rows[0].org_id;
+  const pet = (await up.query(`select id from fuel_types where name = 'Petrol'`)).rows[0].id;
+  await up.exec(`
+    update fuel_types set current_selling_price = 1.5 where id = '${pet}';
+    insert into tanks(id, org_id, name, fuel_type_id, capacity_litres) values ('${A_TANK}', '${org}', 'T', '${pet}', 5000);
+    insert into suppliers(id, org_id, name) values ('${A_SUP}', '${org}', 'S');
+    insert into trucks(id, org_id, plate_number, capacity_litres) values ('${A_TRUCK}', '${org}', 'KXX 1X', 1000);
+    insert into purchases(org_id, supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_cost) values ('${org}', '${A_SUP}', '${A_TRUCK}', '${A_TANK}', 1000, 1.2, 50);
+    insert into sales(org_id, tank_id, litres, payment_type, mpesa_ref, attendant_id) values ('${org}', '${A_TANK}', 100, 'mpesa', 'OLD1', '${A_OWNER}');
+    insert into expenses(org_id, category, amount) values ('${org}', 'rent', 40);`);
+  const before = (await up.query(`select total, cost_total from sales`)).rows[0];
+  try {
+    await up.exec(readFileSync(join(root, "supabase/migrations", files[4]), "utf8"));
+    const s = (await up.query(`select total, cost_total, currency, fx_rate, original_total, payment_type, payment_ref, delivery_status from sales`)).rows[0];
+    const p = (await up.query(`select currency, fx_rate, original_total, fuel_cost, landed_cost_per_litre from purchases`)).rows[0];
+    checkTrue("Existing sale is kept as USD at rate 1 with the same totals",
+      s.currency === "USD" && Number(s.fx_rate) === 1 && Number(s.total) === Number(before.total) &&
+      Number(s.original_total) === Number(before.total) && Number(s.cost_total) === Number(before.cost_total), JSON.stringify(s));
+    checkTrue("M-Pesa becomes Mobile money and keeps its reference", s.payment_type === "mobile" && s.payment_ref === "OLD1");
+    checkTrue("Existing sale counts as delivered", s.delivery_status === "delivered");
+    checkTrue("Existing delivery is kept as USD with the same cost",
+      p.currency === "USD" && Number(p.original_total) === 1250 && Number(p.fuel_cost) === 1200 && Number(p.landed_cost_per_litre) === 1.25, JSON.stringify(p));
+    checkTrue("Existing organizations get placeholder SDG/SSP rates", Number((await up.query(`select count(*) n from exchange_rates where is_placeholder`)).rows[0].n) === 2);
+  } catch (e) {
+    checkTrue("Migration 005 applies on top of existing data", false, `(${e.message})`);
+  }
+}
 
 // =====================================================================================
 // Demo seed applies to its own org on a fresh database, separate from other sign-ups.

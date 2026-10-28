@@ -1,5 +1,6 @@
 -- PetroTrack demo organization.
 --
+-- All amounts are in US dollars (the base currency), with some sales taken in SDG and SSP.
 -- Fills ONE organization with 14 days of demo data and flags it is_demo = true, so it is
 -- clearly separate from real sign-ups. It never touches any other organization.
 --
@@ -37,10 +38,14 @@ begin
 
   update public.organizations set name = 'PetroTrack Demo Depot', is_demo = true where id = v_org;
 
+  -- Demo exchange rates (illustrative only: real SDG/SSP rates move often)
+  insert into public.exchange_rates(org_id, currency, per_base, effective_date)
+  values (v_org, 'SDG', 2600, public.nairobi_today() - 14), (v_org, 'SSP', 4600, public.nairobi_today() - 14);
+
   -- Fuel types were created at sign-up; set demo pump prices.
-  update public.fuel_types set current_selling_price = 182.00 where org_id = v_org and name = 'Petrol' returning id into ft_petrol;
-  update public.fuel_types set current_selling_price = 171.50 where org_id = v_org and name = 'Diesel' returning id into ft_diesel;
-  update public.fuel_types set current_selling_price = 154.00 where org_id = v_org and name = 'Kerosene' returning id into ft_kero;
+  update public.fuel_types set current_selling_price = 1.40 where org_id = v_org and name = 'Petrol' returning id into ft_petrol;
+  update public.fuel_types set current_selling_price = 1.32 where org_id = v_org and name = 'Diesel' returning id into ft_diesel;
+  update public.fuel_types set current_selling_price = 1.18 where org_id = v_org and name = 'Kerosene' returning id into ft_kero;
 
   insert into public.tanks(org_id, name, fuel_type_id, capacity_litres, low_stock_level)
     values (v_org, 'Tank 1 - Petrol', ft_petrol, 30000, 4000) returning id into tk_petrol;
@@ -66,11 +71,11 @@ begin
     values (v_org, 'Coastline Petroleum Depot', '0700 300 400', 'Mombasa') returning id into sup2;
 
   insert into public.customers(org_id, name, phone, credit_limit, credit_terms_days)
-    values (v_org, 'Mwangi Transporters', '0711 000 111', 300000, 30) returning id into cu1;
+    values (v_org, 'Mwangi Transporters', '0711 000 111', 2300, 30) returning id into cu1;
   insert into public.customers(org_id, name, phone, credit_limit, credit_terms_days)
-    values (v_org, 'Green Farm Co-op', '0711 000 222', 150000, 14) returning id into cu2;
+    values (v_org, 'Green Farm Co-op', '0711 000 222', 1150, 14) returning id into cu2;
   insert into public.customers(org_id, name, phone, credit_limit, credit_terms_days)
-    values (v_org, 'Kiptoo Boda Boda SACCO', '0711 000 333', 80000, 7) returning id into cu3;
+    values (v_org, 'Kiptoo Boda Boda SACCO', '0711 000 333', 600, 7) returning id into cu3;
 
   for i in reverse 13..0 loop
     d := public.nairobi_today() - i;
@@ -78,25 +83,25 @@ begin
     -- deliveries
     if i = 13 then
       insert into public.purchases(org_id, date, supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_cost, created_by)
-      values (v_org, d, sup1, tr1, tk_petrol, 14000, 158.20, 38000, v_owner),
-             (v_org, d, sup1, tr2, tk_diesel, 12000, 149.90, 32000, v_owner),
-             (v_org, d, sup2, tr3, tk_kero,    6000, 133.40, 21000, v_owner);
+      values (v_org, d, sup1, tr1, tk_petrol, 14000, 1.21, 290, v_owner),
+             (v_org, d, sup1, tr2, tk_diesel, 12000, 1.15, 245, v_owner),
+             (v_org, d, sup2, tr3, tk_kero,    6000, 1.02, 160, v_owner);
     elsif i = 7 then
       insert into public.purchases(org_id, date, supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_cost, created_by)
-      values (v_org, d, sup2, tr1, tk_petrol, 9000, 160.10, 41000, v_owner),
-             (v_org, d, sup1, tr2, tk_diesel, 7000, 151.25, 26000, v_owner);
+      values (v_org, d, sup2, tr1, tk_petrol, 9000, 1.23, 315, v_owner),
+             (v_org, d, sup1, tr2, tk_diesel, 7000, 1.16, 200, v_owner);
     elsif i = 2 then
       insert into public.purchases(org_id, date, supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_cost, created_by)
-      values (v_org, d, sup1, tr1, tk_petrol, 6000, 159.40, 24000, v_owner);
+      values (v_org, d, sup1, tr1, tk_petrol, 6000, 1.22, 185, v_owner);
     end if;
 
     -- sales (deterministic quantities so the demo is reproducible)
-    insert into public.sales(org_id, date, tank_id, litres, payment_type, mpesa_ref, attendant_id)
-    values (v_org, d, tk_petrol, 620 + (i * 37) % 180, 'cash',  null, v_owner),
-           (v_org, d, tk_petrol, 410 + (i * 53) % 140, 'mpesa', 'DEMO' || to_char(d, 'YYMMDD') || 'P', v_owner),
-           (v_org, d, tk_diesel, 380 + (i * 29) % 160, 'cash',  null, v_owner),
-           (v_org, d, tk_diesel, 300 + (i * 41) % 120, 'mpesa', 'DEMO' || to_char(d, 'YYMMDD') || 'D', v_owner),
-           (v_org, d, tk_kero,   190 + (i * 17) % 90,  'cash',  null, v_owner);
+    insert into public.sales(org_id, date, tank_id, litres, payment_type, payment_ref, currency, attendant_id)
+    values (v_org, d, tk_petrol, 620 + (i * 37) % 180, 'cash',  null, 'USD', v_owner),
+           (v_org, d, tk_petrol, 410 + (i * 53) % 140, 'mobile', 'DEMO' || to_char(d, 'YYMMDD') || 'P', 'SDG', v_owner),
+           (v_org, d, tk_diesel, 380 + (i * 29) % 160, 'cash',  null, 'USD', v_owner),
+           (v_org, d, tk_diesel, 300 + (i * 41) % 120, 'mobile', null, 'SSP', v_owner),
+           (v_org, d, tk_kero,   190 + (i * 17) % 90,  'cash',  null, 'SDG', v_owner);
 
     if i % 3 = 0 then
       insert into public.sales(org_id, date, tank_id, litres, payment_type, customer_id, attendant_id)
@@ -114,29 +119,29 @@ begin
     -- expenses
     if i = 13 then
       insert into public.expenses(org_id, date, category, amount, description, created_by)
-      values (v_org, d, 'rent', 45000, 'Monthly depot rent', v_owner),
-             (v_org, d, 'licences', 12000, 'EPRA licence renewal instalment', v_owner);
+      values (v_org, d, 'rent', 350, 'Monthly depot rent', v_owner),
+             (v_org, d, 'licences', 90, 'EPRA licence renewal instalment', v_owner);
     end if;
     if i = 10 then
       insert into public.expenses(org_id, date, category, amount, truck_id, description, created_by)
-      values (v_org, d, 'truck_repairs', 38500, tr3, 'Gearbox overhaul', v_owner);
+      values (v_org, d, 'truck_repairs', 295, tr3, 'Gearbox overhaul', v_owner);
     end if;
     if i = 6 then
       insert into public.expenses(org_id, date, category, amount, description, created_by)
-      values (v_org, d, 'electricity', 8700, 'KPLC token', v_owner),
-             (v_org, d, 'security', 15000, 'Night guard - fortnight', v_owner);
+      values (v_org, d, 'electricity', 67, 'Electricity token', v_owner),
+             (v_org, d, 'security', 115, 'Night guard - fortnight', v_owner);
     end if;
     if i = 4 then
       insert into public.expenses(org_id, date, category, amount, truck_id, description, created_by)
-      values (v_org, d, 'maintenance', 6200, tr1, 'Service and tyres check', v_owner);
+      values (v_org, d, 'maintenance', 48, tr1, 'Service and tyres check', v_owner);
     end if;
     if i = 1 then
       insert into public.expenses(org_id, date, category, amount, description, created_by)
-      values (v_org, d, 'salaries', 60000, 'Attendant wages (half month)', v_owner);
+      values (v_org, d, 'salaries', 460, 'Attendant wages (half month)', v_owner);
     end if;
   end loop;
 
   -- some credit repaid
   insert into public.credit_payments(org_id, customer_id, amount, method, date, received_by)
-  values (v_org, cu1, 50000, 'mpesa', public.nairobi_today() - 3, v_owner);
+  values (v_org, cu1, 385, 'mobile', public.nairobi_today() - 3, v_owner);
 end $$;
