@@ -7,6 +7,7 @@ import { formatDate, kes, litres, num } from "@/lib/utils";
 import { labelize, TRUCK_STATUS_LABEL, type Truck } from "@/lib/types";
 import { Badge, EmptyState, PageHeader, Stat } from "@/components/ui/misc";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { InfoTip } from "@/components/ui/info-tip";
 
 type Delivery = {
   id: string;
@@ -79,7 +80,8 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
             <Stat
               label="Profit"
               value={kes(perf.profit)}
-              sub={`Margin ${kes(perf.margin)} − repairs ${kes(perf.repair_costs)} − other ${kes(perf.other_truck_costs)}`}
+              sub={`Fuel margin ${kes(perf.margin)} − repairs ${kes(perf.repair_costs)} − other ${kes(perf.other_truck_costs)}`}
+              tip={<InfoTip>Estimate. Fuel margin = litres this truck brought × (today&apos;s pump price − what each litre really cost). Then repairs and other costs tagged to this truck are taken off.</InfoTip>}
               tone={Number(perf.profit) >= 0 ? "positive" : "negative"}
             />
           </>
@@ -88,7 +90,7 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
         )}
       </div>
 
-      <h2 className="mb-2 font-semibold">Deliveries</h2>
+      <h2 className="card-title mb-3">Deliveries</h2>
       {deliveries.length === 0 ? (
         <EmptyState title="No deliveries yet" description="Deliveries recorded with this truck will show here." />
       ) : (
@@ -101,9 +103,9 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
               {isOwner ? (
                 <>
                   <TH className="text-right">Cost / L</TH>
-                  <TH className="text-right">Petrol cost</TH>
+                  <TH className="text-right">What the fuel cost</TH>
                   <TH className="text-right">Trip cost</TH>
-                  <TH className="text-right">Landed / L</TH>
+                  <TH className="text-right">Real cost / L</TH>
                 </>
               ) : null}
             </tr>
@@ -128,7 +130,7 @@ export default async function TruckDetailPage({ params }: { params: Promise<{ id
         </Table>
       )}
 
-      <h2 className="mb-2 mt-6 font-semibold">Repairs and truck expenses</h2>
+      <h2 className="card-title mb-3 mt-8">Repairs and other costs</h2>
       {(expenses ?? []).length === 0 ? (
         <EmptyState title="No truck expenses" description="Tag an expense with this truck to see it here." />
       ) : (

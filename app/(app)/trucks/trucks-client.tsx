@@ -84,10 +84,10 @@ export function TrucksClient({
           {trucks.map((t) => {
             const p = perf[t.id];
             return (
-              <div key={t.id} className="rounded-xl border bg-card p-4 shadow-xs">
+              <div key={t.id} className="rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-[var(--shadow-soft)]">
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/trucks/${t.id}`} className="min-w-0">
-                    <p className="text-lg font-bold">{t.plate_number}</p>
+                    <p className="text-[21px] font-semibold tracking-[-0.01em]">{t.plate_number}</p>
                     <p className="text-sm text-muted-foreground">
                       {driverName(t.driver_id)} · {litres(t.capacity_litres)}
                     </p>
@@ -95,17 +95,17 @@ export function TrucksClient({
                   <Badge variant={STATUS_VARIANT[t.status]}>{TRUCK_STATUS_LABEL[t.status]}</Badge>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                  <div className="rounded-lg bg-muted p-2">
+                  <div className="inner-box px-2 py-3">
                     <p className="font-semibold tabular-nums">{p?.deliveries ?? 0}</p>
                     <p className="text-xs text-muted-foreground">Trips</p>
                   </div>
-                  <div className="rounded-lg bg-muted p-2">
+                  <div className="inner-box px-2 py-3">
                     <p className="font-semibold tabular-nums">{litres(p?.litres ?? 0)}</p>
                     <p className="text-xs text-muted-foreground">Brought</p>
                   </div>
-                  <div className="rounded-lg bg-muted p-2">
+                  <div className="inner-box px-2 py-3">
                     {isOwner ? (
-                      <p className={`font-semibold tabular-nums ${(p?.profit ?? 0) < 0 ? "text-destructive" : ""}`}>
+                      <p className={`font-semibold tabular-nums ${(p?.profit ?? 0) < 0 ? "text-orange" : ""}`}>
                         {kes(p?.profit ?? 0).replace("KES", "").trim()}
                       </p>
                     ) : (
@@ -210,7 +210,7 @@ function TruckForm({ truck, drivers, onClose }: { truck: Truck | null; drivers: 
           {truck ? "Save changes" : "Add truck"}
         </Button>
         {truck ? (
-          <Button type="button" variant="ghost" className="text-destructive" onClick={archive} disabled={pending}>
+          <Button type="button" variant="ghost" className="text-orange" onClick={archive} disabled={pending}>
             Archive truck
           </Button>
         ) : null}
