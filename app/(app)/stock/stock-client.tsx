@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { EmptyState, PageHeader, Progress } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 
 export type AdjustmentRow = {
@@ -66,8 +67,8 @@ export function StockClient({
   return (
     <>
       <PageHeader
-        title="Stock"
-        description={totalValue !== null ? `Stock value ${kes(totalValue)} at landed cost` : "Tank levels and dip readings"}
+        title="Fuel stock"
+        description={totalValue !== null ? `Your fuel is worth ${kes(totalValue)} at what it cost you` : "How much fuel is left in each tank"}
         actions={
           <Button variant="outline" onClick={() => setEditingTank("new")}>
             <Plus /> Tank
@@ -89,7 +90,7 @@ export function StockClient({
             const low = Number(t.current_litres) <= Number(t.low_stock_level);
             const v = valueByTank?.[t.id];
             return (
-              <Card key={t.id} className={cn(low && "border-destructive/50")}>
+              <Card key={t.id} className={cn(low && "border-orange/40")}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div>
@@ -105,16 +106,16 @@ export function StockClient({
                   <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
                     <span>{num(pct, 0)}% of {litres(t.capacity_litres)}</span>
                     {low ? (
-                      <span className="flex items-center gap-1 font-medium text-destructive">
-                        <TriangleAlert className="size-3" /> Low stock
+                      <span className="flex items-center gap-1 font-medium text-orange">
+                        <TriangleAlert className="size-3" /> Running low
                       </span>
                     ) : (
-                      <span>Low at {litres(t.low_stock_level)}</span>
+                      <span>Warns below {litres(t.low_stock_level)}</span>
                     )}
                   </div>
                   {v ? (
                     <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
-                      Avg landed {kes(v.avg)}/L · value <span className="font-medium text-foreground">{kes(v.value)}</span>
+                      Cost {kes(v.avg)}/L on average · worth <span className="font-medium text-fg">{kes(v.value)}</span>
                     </p>
                   ) : null}
                 </CardContent>
@@ -133,7 +134,7 @@ export function StockClient({
             </CardHeader>
             <CardContent className="grid gap-2">
               {fuelTypes.some((f) => Number(f.current_selling_price) === 0) ? (
-                <p className="rounded-lg bg-amber-50 p-2 text-sm text-amber-900">
+                <p className="rounded-[var(--radius-inner)] bg-yellow p-3 text-sm text-[#1c1c1a]">
                   Set a pump price for each fuel before recording sales.
                 </p>
               ) : null}
@@ -141,7 +142,7 @@ export function StockClient({
                 <p className="text-sm text-muted-foreground">No fuel types found for your business.</p>
               ) : (
                 fuelTypes.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+                  <div key={f.id} className="flex items-center justify-between rounded-[var(--radius-inner)] bg-surface-3 px-4 py-2.5 shadow-[var(--shadow-soft)]">
                     <span className="font-medium">{f.name}</span>
                     <span className="flex items-center gap-2">
                       <span className="tabular-nums">{kes(f.current_selling_price)}/L</span>
@@ -157,17 +158,17 @@ export function StockClient({
         </div>
 
         <div className="min-w-0">
-          <h2 className="mb-2 font-semibold">Adjustment log</h2>
+          <h2 className="card-title mb-3">Past dip readings</h2>
           {adjustments.length === 0 ? (
-            <EmptyState title="No dip readings yet" description="Record a dip reading to reconcile stock." />
+            <EmptyState title="No dip readings yet" description="Measure a tank with the dipstick and record it to keep the numbers honest." />
           ) : (
             <Table>
               <THead>
                 <tr>
                   <TH>When</TH>
                   <TH>Tank</TH>
-                  <TH className="text-right">System</TH>
-                  <TH className="text-right">Dip</TH>
+                  <TH className="text-right">App expected</TH>
+                  <TH className="text-right">Measured</TH>
                   <TH className="text-right">Difference</TH>
                   <TH>Reason</TH>
                   <TH>By</TH>
@@ -183,7 +184,7 @@ export function StockClient({
                     <TD
                       className={cn(
                         "text-right font-medium tabular-nums",
-                        Number(a.difference) < 0 ? "text-destructive" : Number(a.difference) > 0 ? "text-primary" : "",
+                        Number(a.difference) < 0 ? "text-orange" : Number(a.difference) > 0 ? "text-green" : "",
                       )}
                     >
                       {Number(a.difference) > 0 ? "+" : ""}
@@ -223,7 +224,7 @@ function DipForm({ tanks }: { tanks: Tank[] }) {
       { tank_id: tankId, dip_litres: dipN, reason },
       // system_litres is captured by the database at the moment of saving
       (data) => createClient().from("stock_adjustments").insert({ ...data, system_litres: 0 }),
-      "Dip reading saved; tank level updated",
+      "Saved. Tank level updated to what you measured.",
     );
     if (ok) {
       setDip("");
@@ -234,7 +235,7 @@ function DipForm({ tanks }: { tanks: Tank[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Dip reading</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">Measure a tank (dip reading) <InfoTip>A dip reading is when you measure the fuel in the tank with a dipstick. The app compares it with what it expected and corrects the tank level.</InfoTip></CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={onSubmit} className="grid gap-4" noValidate>
@@ -249,21 +250,21 @@ function DipForm({ tanks }: { tanks: Tank[] }) {
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="System (litres)">
+            <Field label="App expects (L)">
               <Input disabled value={tank ? num(tank.current_litres) : ""} />
             </Field>
-            <Field label="Actual dip (litres)" htmlFor="dip" error={errors.dip_litres}>
+            <Field label="You measured (L)" htmlFor="dip" error={errors.dip_litres}>
               <Input id="dip" inputMode="decimal" value={dip} onChange={(e) => setDip(e.target.value)} />
             </Field>
           </div>
           {diff !== null ? (
             <div
               className={cn(
-                "flex justify-between rounded-lg p-3 text-sm font-semibold",
-                diff < 0 ? "bg-red-50 text-destructive" : diff > 0 ? "bg-accent text-accent-foreground" : "bg-muted",
+                "flex justify-between rounded-[var(--radius-inner)] p-3.5 text-[15px] font-semibold",
+                diff < 0 ? "bg-orange text-white" : diff > 0 ? "bg-green text-white" : "bg-surface-2",
               )}
             >
-              <span>Difference</span>
+              <span>{diff < 0 ? "Missing" : diff > 0 ? "Extra" : "Matches"}</span>
               <span className="tabular-nums">
                 {diff > 0 ? "+" : ""}
                 {num(diff)} L
@@ -274,7 +275,7 @@ function DipForm({ tanks }: { tanks: Tank[] }) {
             <Textarea id="reason" placeholder="Weekly dip, evaporation, leak…" value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>
           <Button type="submit" size="lg" disabled={pending}>
-            Save dip reading
+            Save reading
           </Button>
         </form>
       </CardContent>
@@ -321,7 +322,7 @@ function TankForm({ tank, fuelTypes, onClose }: { tank: Tank | null; fuelTypes: 
           <Field label="Capacity (L)" htmlFor="tcap" error={errors.capacity_litres}>
             <Input id="tcap" inputMode="decimal" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
           </Field>
-          <Field label="Low-stock alert (L)" htmlFor="tlow" error={errors.low_stock_level}>
+          <Field label="Warn me below (L)" htmlFor="tlow" error={errors.low_stock_level}>
             <Input id="tlow" inputMode="decimal" value={low} onChange={(e) => setLow(e.target.value)} />
           </Field>
         </div>
