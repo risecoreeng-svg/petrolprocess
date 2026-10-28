@@ -22,7 +22,17 @@ const ROLE_HELP: Record<Role, string> = {
   attendant: "Record sales and see their own shifts only",
 };
 
-export function UsersClient({ meId, users, adminError }: { meId: string; users: UserRow[]; adminError: string | null }) {
+export function UsersClient({
+  meId,
+  orgName,
+  users,
+  adminError,
+}: {
+  meId: string;
+  orgName: string;
+  users: UserRow[];
+  adminError: string | null;
+}) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<UserRow | null>(null);
@@ -50,7 +60,7 @@ export function UsersClient({ meId, users, adminError }: { meId: string; users: 
     <>
       <PageHeader
         title="Users"
-        description="Staff accounts and roles"
+        description={`Staff accounts for ${orgName}`}
         actions={
           <Button onClick={() => setCreating(true)} disabled={!!adminError}>
             <Plus /> Add user
@@ -83,28 +93,32 @@ export function UsersClient({ meId, users, adminError }: { meId: string; users: 
               </TD>
               <TD>{u.email}</TD>
               <TD>
-                <Select
-                  aria-label={`Role for ${u.full_name}`}
-                  className="h-9 w-36 text-sm"
-                  value={u.role}
-                  disabled={u.id === meId}
-                  onChange={(e) => changeRole(u, e.target.value as Role)}
-                >
-                  <option value="owner">Owner</option>
-                  <option value="manager">Manager</option>
-                  <option value="attendant">Attendant</option>
-                </Select>
+                {u.role === "owner" ? (
+                  <Badge variant="secondary">Owner</Badge>
+                ) : (
+                  <Select
+                    aria-label={`Role for ${u.full_name}`}
+                    className="h-9 w-36 text-sm"
+                    value={u.role}
+                    onChange={(e) => changeRole(u, e.target.value as Role)}
+                  >
+                    <option value="manager">Manager</option>
+                    <option value="attendant">Attendant</option>
+                  </Select>
+                )}
               </TD>
               <TD>{u.active ? <Badge>Active</Badge> : <Badge variant="destructive">Inactive</Badge>}</TD>
               <TD>{formatDate(u.created_at)}</TD>
               <TD className="flex gap-1">
-                <Button size="sm" variant="ghost" onClick={() => setResetting(u)} disabled={!!adminError} title="Set password">
-                  <KeyRound />
-                </Button>
-                {u.id !== meId ? (
-                  <Button size="sm" variant={u.active ? "ghost" : "outline"} onClick={() => toggleActive(u)} disabled={pending || !!adminError}>
-                    {u.active ? "Deactivate" : "Reactivate"}
-                  </Button>
+                {u.role !== "owner" ? (
+                  <>
+                    <Button size="sm" variant="ghost" onClick={() => setResetting(u)} disabled={!!adminError} title="Set password">
+                      <KeyRound />
+                    </Button>
+                    <Button size="sm" variant={u.active ? "ghost" : "outline"} onClick={() => toggleActive(u)} disabled={pending || !!adminError}>
+                      {u.active ? "Deactivate" : "Reactivate"}
+                    </Button>
+                  </>
                 ) : null}
               </TD>
             </TR>
@@ -122,7 +136,7 @@ function CreateUserForm({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "attendant" as Role });
+  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "attendant" as "manager" | "attendant" });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm({ ...form, [k]: e.target.value });
 
@@ -156,7 +170,6 @@ function CreateUserForm({ onClose }: { onClose: () => void }) {
           <Select id="url" value={form.role} onChange={set("role")}>
             <option value="attendant">Attendant</option>
             <option value="manager">Manager</option>
-            <option value="owner">Owner</option>
           </Select>
         </Field>
         <Button type="submit" size="lg" disabled={pending}>
