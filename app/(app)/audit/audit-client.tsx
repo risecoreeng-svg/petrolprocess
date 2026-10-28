@@ -76,7 +76,7 @@ export function AuditClient({
 
   return (
     <>
-      <PageHeader title="Audit log" description={`${total} entries · every change, who made it and when`} />
+      <PageHeader title="Audit log" description={`${total} changes recorded · who did what, and when`} />
       <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
         <Select aria-label="Table" value={filter.table} onChange={(e) => go({ table: e.target.value })}>
           <option value="">All tables</option>
@@ -135,17 +135,17 @@ export function AuditClient({
                   </TR>
                   {open === r.id ? (
                     <tr>
-                      <td colSpan={5} className="bg-muted/40 p-3">
+                      <td colSpan={5} className="bg-surface-2 p-4">
                         <div className="grid gap-3 text-xs md:grid-cols-2">
                           <div>
                             <p className="mb-1 font-semibold">Before</p>
-                            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-card p-2">
+                            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-[var(--radius-inner)] bg-surface-3 p-3">
                               {r.old_data ? JSON.stringify(r.old_data, null, 2) : "—"}
                             </pre>
                           </div>
                           <div>
                             <p className="mb-1 font-semibold">After</p>
-                            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-card p-2">
+                            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-[var(--radius-inner)] bg-surface-3 p-3">
                               {r.new_data ? JSON.stringify(r.new_data, null, 2) : "—"}
                             </pre>
                           </div>
