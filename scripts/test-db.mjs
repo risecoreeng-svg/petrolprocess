@@ -1,12 +1,12 @@
 // Runs the Supabase migrations against an in-memory Postgres (PGlite) with a stubbed
-// `auth` schema, then checks the profit maths, business rules and role isolation.
+// `auth` schema, then checks the profit maths, business rules, role isolation inside an
+// organization, and isolation between organizations (tenants).
 // Usage: npm run test:db
 import { PGlite } from "@electric-sql/pglite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
-const db = new PGlite();
 
 const AUTH_STUB = `
   create role anon nologin;
@@ -21,23 +21,52 @@ const AUTH_STUB = `
   grant execute on function auth.uid() to authenticated, anon;
 `;
 
-const OWNER = "00000000-0000-0000-0000-000000000001";
-const MANAGER = "00000000-0000-0000-0000-000000000002";
-const ATTENDANT = "00000000-0000-0000-0000-000000000003";
+async function freshDb() {
+  const db = new PGlite();
+  await db.exec(AUTH_STUB);
+  for (const f of readdirSync(join(root, "supabase/migrations")).sort()) {
+    await db.exec(readFileSync(join(root, "supabase/migrations", f), "utf8"));
+  }
+  return db;
+}
 
+// ---------- ids ----------
+const A_OWNER = "a0000000-0000-0000-0000-000000000001";
+const A_MANAGER = "a0000000-0000-0000-0000-000000000002";
+const A_ATT = "a0000000-0000-0000-0000-000000000003";
+const B_OWNER = "b0000000-0000-0000-0000-000000000001";
+const B_ATT = "b0000000-0000-0000-0000-000000000003";
+const A_TANK = "a2000000-0000-0000-0000-000000000001";
+const A_SUP = "a3000000-0000-0000-0000-000000000001";
+const A_TRUCK = "a4000000-0000-0000-0000-000000000001";
+const A_CUST = "a5000000-0000-0000-0000-000000000001";
+const A_SHIFT = "a6000000-0000-0000-0000-000000000001";
+const B_TANK = "b2000000-0000-0000-0000-000000000001";
+const B_SUP = "b3000000-0000-0000-0000-000000000001";
+const B_TRUCK = "b4000000-0000-0000-0000-000000000001";
+const B_CUST = "b5000000-0000-0000-0000-000000000001";
+const B_SHIFT = "b6000000-0000-0000-0000-000000000001";
+const B_DRIVER = "b7000000-0000-0000-0000-000000000001";
+const B_SALE = "b8000000-0000-0000-0000-000000000001";
+const B_PURCHASE = "b9000000-0000-0000-0000-000000000001";
+const B_PAYMENT = "ba000000-0000-0000-0000-000000000001";
+const B_EXPENSE = "bb000000-0000-0000-0000-000000000001";
+
+// ---------- assertion helpers ----------
 let passed = 0;
 let failed = 0;
 const results = [];
+let db;
 
-function check(name, actual, expected) {
-  const ok = Number(actual).toFixed(2) === Number(expected).toFixed(2);
-  results.push({ name, actual: Number(actual).toFixed(2), expected: Number(expected).toFixed(2), ok });
+function record(section, name, ok, actual, expected) {
+  results.push({ section, name, ok, actual, expected });
   ok ? passed++ : failed++;
 }
-function checkTrue(name, cond, detail = "") {
-  results.push({ name, actual: cond ? "yes" : `no ${detail}`, expected: "yes", ok: !!cond });
-  cond ? passed++ : failed++;
-}
+let section = "";
+const check = (name, actual, expected) =>
+  record(section, name, Number(actual).toFixed(2) === Number(expected).toFixed(2),
+    Number(actual).toFixed(2), Number(expected).toFixed(2));
+const checkTrue = (name, cond, detail = "") => record(section, name, !!cond, cond ? "yes" : `no ${detail}`, "yes");
 async function expectError(name, sql, match) {
   try {
     await db.exec(sql);
@@ -47,201 +76,399 @@ async function expectError(name, sql, match) {
   }
 }
 const one = async (sql, params) => (await db.query(sql, params)).rows[0];
-const asUser = async (id) => {
-  await db.exec(`select set_config('request.jwt.claim.sub', '${id}', false); set role authenticated;`);
-};
-const asAdmin = async () => {
-  await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false);`);
-};
+const count = async (sql) => Number((await one(sql)).n);
+const asUser = (id) => db.exec(`reset role; select set_config('request.jwt.claim.sub', '${id}', false); set role authenticated;`);
+const asAnon = () => db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); set role anon;`);
+const asAdmin = () => db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false);`);
 
-await db.exec(AUTH_STUB);
-for (const f of readdirSync(join(root, "supabase/migrations")).sort()) {
-  await db.exec(readFileSync(join(root, "supabase/migrations", f), "utf8"));
-}
+// =====================================================================================
+db = await freshDb();
 
-// users (profiles are created by the auth trigger)
+// ---------- Sign-up creates the organization atomically ----------
+section = "Sign-up";
+await db.exec(`
+  insert into auth.users(id, email, raw_user_meta_data) values
+    ('${A_OWNER}', 'owner@alpha.ke', '{"business_name":"Alpha Fuels","full_name":"Ann Owner"}'),
+    ('${B_OWNER}', 'owner@beta.ke',  '{"business_name":"Beta Petroleum","full_name":"Ben Owner"}');
+`);
+const ORG_A = (await one(`select org_id from profiles where id = '${A_OWNER}'`)).org_id;
+const ORG_B = (await one(`select org_id from profiles where id = '${B_OWNER}'`)).org_id;
+checkTrue("Each sign-up gets its own organization", ORG_A && ORG_B && ORG_A !== ORG_B);
+checkTrue("Sign-up user becomes the org owner", (await one(`select role from profiles where id = '${A_OWNER}'`)).role === "owner");
+checkTrue("Organization named from the business name",
+  (await one(`select name from organizations where id = '${ORG_A}'`)).name === "Alpha Fuels");
+checkTrue("Default fuel types Petrol, Diesel, Kerosene created",
+  (await one(`select string_agg(name, ',' order by name) s from fuel_types where org_id = '${ORG_A}'`)).s === "Diesel,Kerosene,Petrol");
+
+// Staff are created by the owner with server-side app_metadata.
 await db.exec(`
   insert into auth.users(id, email, raw_app_meta_data) values
-    ('${OWNER}', 'owner@test.ke', '{"role":"owner"}'),
-    ('${MANAGER}', 'manager@test.ke', '{"role":"manager"}'),
-    ('${ATTENDANT}', 'att@test.ke', '{}');
+    ('${A_MANAGER}', 'mgr@alpha.ke', '{"org_id":"${ORG_A}","role":"manager"}'),
+    ('${A_ATT}',     'att@alpha.ke', '{"org_id":"${ORG_A}","role":"attendant"}'),
+    ('${B_ATT}',     'att@beta.ke',  '{"org_id":"${ORG_B}","role":"attendant"}');
 `);
-checkTrue("New users get a profile; default role is attendant",
-  (await one(`select role from profiles where id = '${ATTENDANT}'`)).role === "attendant");
+checkTrue("Staff join the owner's org with the given role",
+  (await one(`select org_id, role from profiles where id = '${A_MANAGER}'`)).org_id === ORG_A &&
+  (await one(`select role from profiles where id = '${A_ATT}'`)).role === "attendant");
+await expectError("Staff path cannot create a second owner",
+  `insert into auth.users(id, email, raw_app_meta_data) values (gen_random_uuid(), 'x@alpha.ke', '{"org_id":"${ORG_A}","role":"owner"}')`,
+  "only be managers or attendants");
+await expectError("Staff path rejects an unknown organization",
+  `insert into auth.users(id, email, raw_app_meta_data) values (gen_random_uuid(), 'y@alpha.ke', '{"org_id":"00000000-0000-0000-0000-00000000dead","role":"attendant"}')`,
+  "Organization not found");
+checkTrue("Failed sign-up leaves no partial rows (atomic)",
+  (await count(`select count(*) n from auth.users where email in ('x@alpha.ke','y@alpha.ke')`)) === 0 &&
+  (await count(`select count(*) n from organizations`)) === 2);
 
-// reference data
+// ---------- Reference data for both orgs (system context passes org_id explicitly) ----------
+const FT = async (org, name) => (await one(`select id from fuel_types where org_id = '${org}' and name = '${name}'`)).id;
+const A_PETROL = await FT(ORG_A, "Petrol");
+const B_PETROL = await FT(ORG_B, "Petrol");
 await db.exec(`
-  insert into fuel_types(id, name, current_selling_price) values
-    ('10000000-0000-0000-0000-000000000001', 'Petrol', 180);
-  insert into tanks(id, name, fuel_type_id, capacity_litres, current_litres, low_stock_level) values
-    ('20000000-0000-0000-0000-000000000001', 'T1', '10000000-0000-0000-0000-000000000001', 25000, 99999, 2000);
-  insert into suppliers(id, name) values ('30000000-0000-0000-0000-000000000001', 'S1');
-  insert into trucks(id, plate_number, capacity_litres) values ('40000000-0000-0000-0000-000000000001', 'KAA 001A', 15000);
-  insert into customers(id, name, credit_limit, balance) values
-    ('50000000-0000-0000-0000-000000000001', 'C1', 100000, 77777);
+  update fuel_types set current_selling_price = 180 where id = '${A_PETROL}';
+  update fuel_types set current_selling_price = 190 where id = '${B_PETROL}';
+  insert into tanks(id, org_id, name, fuel_type_id, capacity_litres, current_litres, low_stock_level) values
+    ('${A_TANK}', '${ORG_A}', 'A1', '${A_PETROL}', 25000, 99999, 2000),
+    ('${B_TANK}', '${ORG_B}', 'B1', '${B_PETROL}', 25000, 0, 2000);
+  insert into suppliers(id, org_id, name) values ('${A_SUP}', '${ORG_A}', 'S-A'), ('${B_SUP}', '${ORG_B}', 'S-B');
+  insert into drivers(id, org_id, name) values ('${B_DRIVER}', '${ORG_B}', 'Driver B');
+  insert into trucks(id, org_id, plate_number, capacity_litres) values
+    ('${A_TRUCK}', '${ORG_A}', 'KAA 001A', 15000),
+    ('${B_TRUCK}', '${ORG_B}', 'KAA 001A', 15000);
+  insert into customers(id, org_id, name, credit_limit, balance) values
+    ('${A_CUST}', '${ORG_A}', 'C-A', 100000, 77777),
+    ('${B_CUST}', '${ORG_B}', 'C-B', 500000, 0);
 `);
-checkTrue("Tank opening litres forced to 0 (only deliveries add stock)",
-  Number((await one(`select current_litres from tanks`)).current_litres) === 0);
-checkTrue("Customer opening balance forced to 0",
-  Number((await one(`select balance from customers`)).balance) === 0);
 
-const TANK = "20000000-0000-0000-0000-000000000001";
+section = "Per-org uniqueness and integrity";
+checkTrue("Same truck plate allowed in two different orgs",
+  (await count(`select count(*) n from trucks where plate_number = 'KAA 001A'`)) === 2);
+await expectError("Duplicate truck plate within one org is rejected",
+  `insert into trucks(org_id, plate_number, capacity_litres) values ('${ORG_A}', 'KAA 001A', 1000)`, "duplicate key");
+checkTrue("Tank opening litres forced to 0", Number((await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l) === 0);
+checkTrue("Customer opening balance forced to 0", Number((await one(`select balance b from customers where id = '${A_CUST}'`)).b) === 0);
+await expectError("System insert without org_id is rejected",
+  `insert into drivers(name) values ('No org')`, "org_id is required");
+await expectError("Records cannot be moved between orgs (even by the system)",
+  `update trucks set org_id = '${ORG_B}' where id = '${A_TRUCK}'`, "cannot be moved");
+await expectError("Composite FK backstop: org A tank cannot use org B fuel type",
+  `insert into tanks(org_id, name, fuel_type_id, capacity_litres) values ('${ORG_A}', 'X', '${B_PETROL}', 100)`, "Fuel type not found");
+
+// Org B activity, so there is something to try to steal.
+await db.exec(`
+  insert into purchases(id, org_id, supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_cost)
+    values ('${B_PURCHASE}', '${ORG_B}', '${B_SUP}', '${B_TRUCK}', '${B_TANK}', 8000, 170, 8000);
+  insert into shifts(id, org_id, attendant_id) values ('${B_SHIFT}', '${ORG_B}', '${B_ATT}');
+  insert into sales(id, org_id, tank_id, litres, payment_type, customer_id, attendant_id)
+    values ('${B_SALE}', '${ORG_B}', '${B_TANK}', 1000, 'credit', '${B_CUST}', '${B_OWNER}');
+  insert into credit_payments(id, org_id, customer_id, amount, method, received_by)
+    values ('${B_PAYMENT}', '${ORG_B}', '${B_CUST}', 10000, 'cash', '${B_OWNER}');
+  insert into expenses(id, org_id, category, amount, truck_id) values ('${B_EXPENSE}', '${ORG_B}', 'truck_repairs', 7000, '${B_TRUCK}');
+  insert into stock_adjustments(org_id, tank_id, dip_litres, reason, system_litres) values ('${ORG_B}', '${B_TANK}', 6990, 'B dip', 0);
+`);
+const bSnapshot = async () => {
+  await asAdmin();
+  return JSON.stringify((await db.query(`
+    select (select current_litres from tanks where id = '${B_TANK}') litres,
+           (select balance from customers where id = '${B_CUST}') balance,
+           (select count(*) from sales where org_id = '${ORG_B}' and deleted_at is null) sales,
+           (select count(*) from purchases where org_id = '${ORG_B}' and deleted_at is null) purchases,
+           (select count(*) from credit_payments where org_id = '${ORG_B}' and deleted_at is null) payments,
+           (select count(*) from expenses where org_id = '${ORG_B}' and deleted_at is null) expenses,
+           (select string_agg(plate_number || ':' || coalesce(notes, ''), ',') from trucks where org_id = '${ORG_B}') trucks,
+           (select string_agg(name, ',') from drivers where org_id = '${ORG_B}') drivers,
+           (select string_agg(name, ',') from suppliers where org_id = '${ORG_B}') suppliers,
+           (select string_agg(name || ':' || current_selling_price, ',' order by name) from fuel_types where org_id = '${ORG_B}') prices,
+           (select low_stock_level from tanks where id = '${B_TANK}') low_stock,
+           (select credit_limit from customers where id = '${B_CUST}') credit_limit,
+           (select sum(amount) from expenses where org_id = '${ORG_B}') expense_total,
+           (select string_agg(id || ':' || active, ',') from profiles where org_id = '${ORG_B}') staff,
+           (select count(*) from stock_adjustments where org_id = '${ORG_B}') adjustments,
+           (select count(*) from shifts where org_id = '${ORG_B}' and ended_at is null) open_shifts,
+           (select name from organizations where id = '${ORG_B}') org`)).rows[0]);
+};
+const B_BEFORE = await bSnapshot();
+
+// =====================================================================================
+// Profit maths and business rules (inside org A)
 const purchase = (litres, cpl, trip) => `
   insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_cost) values
-    ('30000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '${TANK}', ${litres}, ${cpl}, ${trip});`;
-const avgCost = async () => Number((await one(`select avg_cost_per_litre a from tank_costing`)).a);
-const tankLitres = async () => Number((await one(`select current_litres l from tanks`)).l);
+    ('${A_SUP}', '${A_TRUCK}', '${A_TANK}', ${litres}, ${cpl}, ${trip});`;
+const avgCost = async () => Number((await one(`select avg_cost_per_litre a from tank_costing where tank_id = '${A_TANK}'`)).a);
+const tankLitres = async () => Number((await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l);
 
-// ---------- Case 1: landed cost ----------
-await asUser(MANAGER);
+section = "Profit maths";
+await asUser(A_MANAGER);
 await db.exec(purchase(10000, 150, 20000));
 await asAdmin();
-const p1 = await one(`select fuel_cost, landed_cost_per_litre from purchases order by created_at limit 1`);
+const p1 = await one(`select fuel_cost, landed_cost_per_litre, org_id from purchases where tank_id = '${A_TANK}' order by created_at limit 1`);
+checkTrue("Manager's delivery is stamped with org A", p1.org_id === ORG_A);
 check("Case 1: fuel cost 10,000 L x 150", p1.fuel_cost, 1500000);
 check("Case 1: landed cost (1,500,000 + 20,000) / 10,000", p1.landed_cost_per_litre, 152);
 check("Case 1: tank after delivery", await tankLitres(), 10000);
 
-// ---------- Case 2: weighted average after second delivery ----------
+await asUser(A_OWNER);
 await db.exec(purchase(5000, 160, 10000)); // landed 162
-const expAvg2 = (10000 * 152 + 5000 * 162) / 15000; // 155.3333
+await asAdmin();
+const expAvg2 = (10000 * 152 + 5000 * 162) / 15000;
 check("Case 2: weighted avg (10k@152 + 5k@162)/15k", await avgCost(), expAvg2.toFixed(4));
 check("Case 2: tank litres", await tankLitres(), 15000);
 
-// ---------- Case 3: sale, gross & net profit ----------
-await db.exec(`
-  insert into shifts(id, attendant_id) values ('60000000-0000-0000-0000-000000000001', '${ATTENDANT}');`);
-await asUser(ATTENDANT);
-await db.exec(`insert into sales(tank_id, litres, price_per_litre, payment_type) values ('${TANK}', 1000, 1, 'cash');`);
+await db.exec(`insert into shifts(id, org_id, attendant_id) values ('${A_SHIFT}', '${ORG_A}', '${A_ATT}');`);
+await asUser(A_ATT);
+await db.exec(`insert into sales(tank_id, litres, price_per_litre, payment_type) values ('${A_TANK}', 1000, 1, 'cash');`);
 await asAdmin();
-const s1 = await one(`select total, cost_per_litre, cost_total, price_per_litre, shift_id from sales`);
+const s1 = await one(`select total, cost_total, price_per_litre, shift_id from sales where org_id = '${ORG_A}'`);
 check("Case 3: attendant price forced to pump price (tried 1.00)", s1.price_per_litre, 180);
 check("Case 3: sales 1,000 L x 180", s1.total, 180000);
 const avg4 = Number(expAvg2.toFixed(4));
 check("Case 3: cost of fuel sold 1,000 x 155.3333", s1.cost_total, (1000 * avg4).toFixed(2));
-checkTrue("Case 3: sale attached to attendant's open shift", s1.shift_id === "60000000-0000-0000-0000-000000000001");
+checkTrue("Case 3: sale attached to attendant's open shift", s1.shift_id === A_SHIFT);
+await asUser(A_MANAGER);
 await db.exec(`insert into expenses(category, amount) values ('electricity', 5000);`);
-const ds = await (async () => {
-  await asUser(OWNER);
-  const r = await one(`select sum(sales) s, sum(cost_of_fuel) c, sum(gross_profit) g, sum(expenses) e, sum(net_profit) n from daily_summary`);
-  await asAdmin();
-  return r;
-})();
-check("Case 3: daily_summary gross profit 180,000 - 155,333.30", ds.g, 180000 - 1000 * avg4);
+await asUser(A_OWNER);
+const ds = await one(`select sum(sales) s, sum(gross_profit) g, sum(net_profit) n from daily_summary`);
+check("Case 3: daily_summary gross profit 180,000 - 155,333.30 (org A only)", ds.g, 180000 - 1000 * avg4);
 check("Case 3: daily_summary net profit (gross - 5,000 expenses)", ds.n, 180000 - 1000 * avg4 - 5000);
-
-// ---------- Case 4: stock value ----------
-await asUser(OWNER);
-const sv = await one(`select value from stock_value`);
+const sv = await one(`select sum(value) value from stock_value`);
+check("Case 4: stock value 14,000 L x 155.3333 (org A only)", sv.value, (14000 * avg4).toFixed(2));
 await asAdmin();
-check("Case 4: stock value 14,000 L x 155.3333", sv.value, (14000 * avg4).toFixed(2));
 
-// ---------- Case 5: avg after a delivery on top of remaining stock ----------
+await asUser(A_OWNER);
 await db.exec(purchase(6000, 157, 6000)); // landed 158
+await asAdmin();
 const expAvg5 = (14000 * avg4 + 6000 * 158) / 20000;
 check("Case 5: weighted avg (14k@155.3333 + 6k@158)/20k", await avgCost(), expAvg5.toFixed(4));
-await db.exec(`insert into sales(tank_id, litres, price_per_litre, payment_type, attendant_id) values ('${TANK}', 2000, 185, 'cash', '${OWNER}');`);
-const s2 = await one(`select total, cost_total from sales where litres = 2000`);
-const avg5 = Number(expAvg5.toFixed(4));
-check("Case 5: second sale gross profit 2,000 x (185 - 156.1333)", Number(s2.total) - Number(s2.cost_total), (370000 - 2000 * avg5).toFixed(2));
+await asUser(A_OWNER);
+await db.exec(`insert into sales(tank_id, litres, price_per_litre, payment_type) values ('${A_TANK}', 2000, 185, 'cash');`);
+await asAdmin();
+const s2 = await one(`select total, cost_total from sales where litres = 2000 and org_id = '${ORG_A}'`);
+check("Case 5: second sale gross profit 2,000 x (185 - 156.1333)", Number(s2.total) - Number(s2.cost_total),
+  (370000 - 2000 * Number(expAvg5.toFixed(4))).toFixed(2));
 
-// ---------- Business rules ----------
-await expectError("Rule: sale above tank stock is rejected",
-  `insert into sales(tank_id, litres, payment_type, attendant_id) values ('${TANK}', 999999, 'cash', '${OWNER}');`,
-  "Insufficient stock");
-await expectError("Rule: credit sale without customer is rejected",
-  `insert into sales(tank_id, litres, payment_type, attendant_id) values ('${TANK}', 10, 'credit', '${OWNER}');`,
-  "need a customer");
-await expectError("Rule: credit sale over limit is rejected (600 L x 180 > 100,000)",
-  `insert into sales(tank_id, litres, payment_type, customer_id, attendant_id) values ('${TANK}', 600, 'credit', '50000000-0000-0000-0000-000000000001', '${OWNER}');`,
-  "Credit limit exceeded");
-await expectError("Rule: M-Pesa sale without reference is rejected",
-  `insert into sales(tank_id, litres, payment_type, attendant_id) values ('${TANK}', 10, 'mpesa', '${OWNER}');`,
-  "check constraint");
-await expectError("Rule: purchase without truck is rejected",
-  `insert into purchases(supplier_id, tank_id, litres, cost_per_litre) values ('30000000-0000-0000-0000-000000000001', '${TANK}', 100, 150);`,
-  "null value");
+section = "Business rules";
+await asUser(A_OWNER);
+await expectError("Sale above tank stock is rejected",
+  `insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 999999, 'cash');`, "Insufficient stock");
+await expectError("Credit sale without customer is rejected",
+  `insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 10, 'credit');`, "need a customer");
+await expectError("Credit sale over limit is rejected (600 L x 180 > 100,000)",
+  `insert into sales(tank_id, litres, payment_type, customer_id) values ('${A_TANK}', 600, 'credit', '${A_CUST}');`, "Credit limit exceeded");
+await expectError("M-Pesa sale without reference is rejected",
+  `insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 10, 'mpesa');`, "check constraint");
+await expectError("Purchase without truck is rejected",
+  `insert into purchases(supplier_id, tank_id, litres, cost_per_litre) values ('${A_SUP}', '${A_TANK}', 100, 150);`, "null value");
+await asAdmin();
 
-await db.exec(`insert into sales(id, tank_id, litres, payment_type, customer_id, attendant_id) values
-  ('70000000-0000-0000-0000-000000000001', '${TANK}', 500, 'credit', '50000000-0000-0000-0000-000000000001', '${OWNER}');`);
-check("Credit: balance after 500 L credit sale (500 x 180)",
-  (await one(`select balance from customers`)).balance, 90000);
-await db.exec(`insert into credit_payments(customer_id, amount, method, received_by) values ('50000000-0000-0000-0000-000000000001', 30000, 'mpesa', '${OWNER}');`);
-check("Credit: balance after 30,000 payment", (await one(`select balance from customers`)).balance, 60000);
+await db.exec(`insert into sales(id, org_id, tank_id, litres, payment_type, customer_id, attendant_id) values
+  ('a8000000-0000-0000-0000-000000000001', '${ORG_A}', '${A_TANK}', 500, 'credit', '${A_CUST}', '${A_OWNER}');`);
+check("Credit: balance after 500 L credit sale", (await one(`select balance from customers where id = '${A_CUST}'`)).balance, 90000);
+await asUser(A_MANAGER);
+await db.exec(`insert into credit_payments(customer_id, amount, method) values ('${A_CUST}', 30000, 'mpesa');`);
+await asAdmin();
+check("Credit: balance after 30,000 payment", (await one(`select balance from customers where id = '${A_CUST}'`)).balance, 60000);
+await asUser(A_MANAGER);
 await expectError("Credit: overpayment is rejected",
-  `insert into credit_payments(customer_id, amount, method) values ('50000000-0000-0000-0000-000000000001', 70000, 'cash');`,
-  "exceeds balance");
-
+  `insert into credit_payments(customer_id, amount, method) values ('${A_CUST}', 70000, 'cash');`, "exceeds balance");
+await asAdmin();
 const litresBeforeVoid = await tankLitres();
-await asUser(OWNER);
-await db.exec(`update sales set deleted_at = now() where id = '70000000-0000-0000-0000-000000000001';`);
+await asUser(A_OWNER);
+await db.exec(`update sales set deleted_at = now() where id = 'a8000000-0000-0000-0000-000000000001';`);
 await asAdmin();
 check("Void: credit sale void restores tank litres", await tankLitres(), litresBeforeVoid + 500);
-// 60,000 owed - 90,000 voided sale = -30,000 (customer is now in credit)
-check("Void: credit sale void reduces balance by 90,000", (await one(`select balance from customers`)).balance, -30000);
-
+check("Void: credit sale void reduces balance by 90,000", (await one(`select balance from customers where id = '${A_CUST}'`)).balance, -30000);
 await expectError("Soft delete: hard DELETE is blocked", `delete from sales;`, "Hard delete is not allowed");
-const audit = await one(`select count(*) n from audit_log where table_name = 'sales' and action = 'SOFT_DELETE'`);
-checkTrue("Audit: sale void logged as SOFT_DELETE", Number(audit.n) === 1);
+checkTrue("Audit: sale void logged as SOFT_DELETE with org A",
+  (await count(`select count(*) n from audit_log where table_name = 'sales' and action = 'SOFT_DELETE' and org_id = '${ORG_A}'`)) === 1);
 await expectError("Audit: audit_log cannot be edited", `update audit_log set action = 'X';`, "append-only");
 
-// ---------- Role isolation (RLS) ----------
-await asUser(ATTENDANT);
-checkTrue("RLS: attendant cannot read sales base table (cost hidden)",
-  Number((await one(`select count(*) n from sales`)).n) === 0);
-checkTrue("RLS: attendant sees only own sales in sales_safe",
-  Number((await one(`select count(*) n from sales_safe`)).n) === 1);
-checkTrue("RLS: attendant cannot read daily_summary",
-  Number((await one(`select count(*) n from daily_summary`)).n) === 0);
-await expectError("RLS: attendant cannot record a delivery", purchase(10, 150, 0), "row-level security");
-await expectError("RLS: attendant cannot set tank litres directly",
-  `update tanks set current_litres = 1;`, "permission denied");
+section = "Roles inside one org";
+await asUser(A_ATT);
+checkTrue("Attendant cannot read sales base table (cost hidden)", (await count(`select count(*) n from sales`)) === 0);
+checkTrue("Attendant sees only own sales in sales_safe", (await count(`select count(*) n from sales_safe`)) === 1);
+checkTrue("Attendant cannot read daily_summary", (await count(`select count(*) n from daily_summary`)) === 0);
+await expectError("Attendant cannot record a delivery", purchase(10, 150, 0), "row-level security");
+await expectError("Attendant cannot set tank litres directly", `update tanks set current_litres = 1;`, "permission denied");
+await asUser(A_MANAGER);
+checkTrue("Manager cannot read tank cost basis", (await count(`select count(*) n from tank_costing`)) === 0);
+checkTrue("Manager cannot read purchase costs (base table)", (await count(`select count(*) n from purchases`)) === 0);
+checkTrue("Manager sees org A deliveries via purchases_safe", (await count(`select count(*) n from purchases_safe`)) === 3);
+checkTrue("Manager cannot read stock_value / truck_performance",
+  (await count(`select count(*) n from stock_value`)) === 0 && (await count(`select count(*) n from truck_performance`)) === 0);
+checkTrue("Manager cannot read audit log", (await count(`select count(*) n from audit_log`)) === 0);
+checkTrue("Manager cannot void a sale", (await db.query(`update sales set deleted_at = now() returning id`)).rows.length === 0);
+checkTrue("Manager cannot change staff roles",
+  (await db.query(`update profiles set role = 'attendant' where id = '${A_ATT}' returning id`)).rows.length === 0);
+await asUser(A_OWNER);
+checkTrue("Owner reads own org's audit log", (await count(`select count(*) n from audit_log`)) > 0);
+checkTrue("Owner cannot promote staff to owner",
+  await expectRlsBlock(`update profiles set role = 'owner' where id = '${A_MANAGER}'`));
+checkTrue("Owner cannot change their own profile role",
+  (await db.query(`update profiles set role = 'manager' where id = '${A_OWNER}' returning id`)).rows.length === 0);
 await asAdmin();
 
-await asUser(MANAGER);
-checkTrue("RLS: manager cannot read tank cost basis",
-  Number((await one(`select count(*) n from tank_costing`)).n) === 0);
-checkTrue("RLS: manager cannot read purchase costs (base table)",
-  Number((await one(`select count(*) n from purchases`)).n) === 0);
-checkTrue("RLS: manager sees deliveries via purchases_safe",
-  Number((await one(`select count(*) n from purchases_safe`)).n) === 3);
-checkTrue("RLS: manager cannot read stock_value / truck_performance",
-  Number((await one(`select count(*) n from stock_value`)).n) === 0 &&
-  Number((await one(`select count(*) n from truck_performance`)).n) === 0);
-checkTrue("RLS: manager cannot read audit log",
-  Number((await one(`select count(*) n from audit_log`)).n) === 0);
-checkTrue("RLS: manager cannot void a sale",
-  (await db.query(`update sales set deleted_at = now() returning id`)).rows.length === 0);
-await asAdmin();
-
-await asUser(OWNER);
-checkTrue("RLS: owner reads audit log", Number((await one(`select count(*) n from audit_log`)).n) > 0);
-await asAdmin();
-
-// ---------- Shift variance ----------
-await asUser(ATTENDANT);
-const sh = await one(`select * from end_shift('60000000-0000-0000-0000-000000000001', 179500)`);
-await asAdmin();
-check("Shift: expected cash = cash sales in shift", sh.expected_cash, 180000);
-check("Shift: variance = 179,500 - 180,000", sh.variance, -500);
-
-// ---------- Demo seed applies cleanly on a fresh database ----------
-const seedDb = new PGlite();
-await seedDb.exec(AUTH_STUB);
-for (const f of readdirSync(join(root, "supabase/migrations")).sort()) {
-  await seedDb.exec(readFileSync(join(root, "supabase/migrations", f), "utf8"));
+async function expectRlsBlock(sql) {
+  try {
+    const r = await db.query(`${sql} returning id`);
+    return r.rows.length === 0;
+  } catch (e) {
+    return /row-level security|permission denied/.test(e.message);
+  }
 }
-await seedDb.exec(`insert into auth.users(id, email, raw_app_meta_data) values ('${OWNER}', 'o@test.ke', '{"role":"owner"}');`);
+
+section = "Shift variance";
+await asUser(A_ATT);
+const sh = await one(`select * from end_shift('${A_SHIFT}', 179500)`);
+await asAdmin();
+check("Expected cash = cash sales in shift", sh.expected_cash, 180000);
+check("Variance = 179,500 - 180,000", sh.variance, -500);
+
+// A fresh open shift, so the attendant's sale attempts reach the org checks.
+await asUser(A_ATT);
+await db.exec(`select start_shift()`);
+await asAdmin();
+
+// =====================================================================================
+// Cross-tenant isolation: every org A role tries to read, write, edit and void org B.
+const TABLES = ["profiles", "drivers", "trucks", "suppliers", "fuel_types", "tanks", "tank_costing", "purchases",
+  "customers", "shifts", "sales", "credit_payments", "expenses", "stock_adjustments", "audit_log"];
+const ORG_VIEWS = ["purchases_safe", "sales_safe", "truck_performance", "stock_value", "customer_balances"];
+
+for (const [label, uid] of [["owner", A_OWNER], ["manager", A_MANAGER], ["attendant", A_ATT]]) {
+  section = `Cross-tenant: org A ${label} vs org B`;
+  await asUser(uid);
+  checkTrue("current_org_id() is org A", (await one(`select public.current_org_id() id`)).id === ORG_A);
+  checkTrue("Cannot read org B's organization row", (await count(`select count(*) n from organizations where id = '${ORG_B}'`)) === 0);
+  const leaks = [];
+  for (const t of TABLES) if ((await count(`select count(*) n from ${t} where org_id = '${ORG_B}'`)) > 0) leaks.push(t);
+  checkTrue(`Reads 0 org B rows from all ${TABLES.length} tables`, leaks.length === 0, leaks.join(","));
+  const vleaks = [];
+  for (const v of ORG_VIEWS) if ((await count(`select count(*) n from ${v} where org_id = '${ORG_B}'`)) > 0) vleaks.push(v);
+  checkTrue(`Reads 0 org B rows from ${ORG_VIEWS.length} org-tagged views`, vleaks.length === 0, vleaks.join(","));
+  checkTrue("Cannot look up org B rows by id either",
+    (await count(`select count(*) n from sales_safe where id = '${B_SALE}'`)) === 0 &&
+    (await count(`select count(*) n from tanks where id = '${B_TANK}'`)) === 0);
+
+  // Writes that reference org B's records
+  await expectError("Sale on org B's tank is rejected",
+    `insert into sales(tank_id, litres, payment_type) values ('${B_TANK}', 1, 'cash')`, "Tank not found");
+  await expectError("Credit sale for org B's customer is rejected",
+    `insert into sales(tank_id, litres, payment_type, customer_id) values ('${A_TANK}', 1, 'credit', '${B_CUST}')`,
+    label === "attendant" ? "Customer not found" : "Customer not found");
+  await expectError("Payment against org B's customer is rejected",
+    `insert into credit_payments(customer_id, amount, method) values ('${B_CUST}', 1, 'cash')`, "Customer not found");
+  await expectError("Cannot write org_id directly",
+    `insert into drivers(org_id, name) values ('${ORG_B}', 'Spoof')`, "permission denied");
+  await expectError("Cannot call internal trigger helpers",
+    `select public.assert_same_org('tanks', '${B_TANK}', '${ORG_B}', 'x')`, "permission denied");
+  await expectError("Cannot close org B's shift", `select * from end_shift('${B_SHIFT}', 0)`, "No open shift found");
+
+  if (label !== "attendant") {
+    await expectError("Delivery with org B's truck is rejected", `
+      insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre) values ('${A_SUP}', '${B_TRUCK}', '${A_TANK}', 1, 1)`,
+      "Truck not found");
+    await expectError("Delivery with org B's supplier is rejected", `
+      insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre) values ('${B_SUP}', '${A_TRUCK}', '${A_TANK}', 1, 1)`,
+      "Supplier not found");
+    await expectError("Delivery into org B's tank is rejected", `
+      insert into purchases(supplier_id, truck_id, tank_id, litres, cost_per_litre) values ('${A_SUP}', '${A_TRUCK}', '${B_TANK}', 1, 1)`,
+      "Tank not found");
+    await expectError("Dip reading on org B's tank is rejected",
+      `insert into stock_adjustments(tank_id, dip_litres, reason, system_litres) values ('${B_TANK}', 1, 'x', 0)`, "Tank not found");
+    await expectError("Expense tagged to org B's truck is rejected",
+      `insert into expenses(category, amount, truck_id) values ('truck_repairs', 1, '${B_TRUCK}')`, "Truck not found");
+    await expectError("Truck with org B's driver is rejected",
+      `insert into trucks(plate_number, capacity_litres, driver_id) values ('KZZ 999Z', 1, '${B_DRIVER}')`, "Driver not found");
+    await expectError("Tank with org B's fuel type is rejected",
+      `insert into tanks(name, fuel_type_id, capacity_litres) values ('X', '${B_PETROL}', 1)`, "Fuel type not found");
+    await expectError("Sale recorded for org B's attendant is rejected",
+      `insert into sales(tank_id, litres, payment_type, attendant_id) values ('${A_TANK}', 1, 'cash', '${B_ATT}')`, "");
+  }
+
+  // Edits and voids aimed at org B
+  const edits = {
+    organizations: `update organizations set name = 'Hacked' where id = '${ORG_B}'`,
+    profiles: `update profiles set active = false where id = '${B_ATT}'`,
+    trucks: `update trucks set notes = 'hacked' where id = '${B_TRUCK}'`,
+    drivers: `update drivers set name = 'hacked' where id = '${B_DRIVER}'`,
+    suppliers: `update suppliers set name = 'hacked' where id = '${B_SUP}'`,
+    fuel_types: `update fuel_types set current_selling_price = 1 where id = '${B_PETROL}'`,
+    tanks: `update tanks set low_stock_level = 1 where id = '${B_TANK}'`,
+    customers: `update customers set credit_limit = 1 where id = '${B_CUST}'`,
+    expenses: `update expenses set amount = 1 where id = '${B_EXPENSE}'`,
+    "sales (void)": `update sales set deleted_at = now() where id = '${B_SALE}'`,
+    "purchases (void)": `update purchases set deleted_at = now() where id = '${B_PURCHASE}'`,
+    "credit_payments (void)": `update credit_payments set deleted_at = now() where id = '${B_PAYMENT}'`,
+  };
+  const editLeaks = [];
+  for (const [t, sql] of Object.entries(edits)) if (!(await expectRlsBlock(sql))) editLeaks.push(t);
+  checkTrue(`Cannot edit or void anything in org B (${Object.keys(edits).length} attempts)`, editLeaks.length === 0, editLeaks.join(","));
+}
+await asAdmin();
+
+section = "Cross-tenant: org B unaffected and still private";
+checkTrue("Org B data is byte-for-byte unchanged after all attacks", (await bSnapshot()) === B_BEFORE);
+await asUser(B_OWNER);
+const bTotals = await one(`select sum(sales) s from daily_summary`);
+check("Org B's daily_summary shows only its own sales (1,000 L x 190)", bTotals.s, 190000);
+checkTrue("Org B owner sees 0 org A rows in every table", await (async () => {
+  for (const t of TABLES) if ((await count(`select count(*) n from ${t} where org_id = '${ORG_A}'`)) > 0) return false;
+  return true;
+})());
+checkTrue("Org B owner sees only org B in audit log",
+  (await count(`select count(*) n from audit_log where org_id <> '${ORG_B}'`)) === 0 && (await count(`select count(*) n from audit_log`)) > 0);
+await asUser(A_OWNER);
+checkTrue("Org A daily_summary / monthly_summary / daily_sales_summary exclude org B sales", await (async () => {
+  const d = Number((await one(`select sum(sales) s from daily_summary`)).s);
+  const m = Number((await one(`select sum(sales) s from monthly_summary`)).s);
+  const ds2 = Number((await one(`select sum(sales) s from daily_sales_summary`)).s);
+  const own = 180000 + 370000;
+  return d === own && m === own && ds2 === own;
+})());
+
+section = "Signed out and deactivated";
+await asAnon();
+await expectError("Signed-out visitors cannot read tables", `select count(*) from trucks`, "permission denied");
+await expectError("Signed-out visitors cannot read views", `select count(*) from sales_safe`, "permission denied");
+await expectError("Signed-out visitors cannot call shift RPCs", `select start_shift()`, "permission denied");
+await asUser(A_OWNER);
+await db.exec(`update profiles set active = false where id = '${A_MANAGER}'`);
+await asUser(A_MANAGER);
+checkTrue("Deactivated manager sees nothing", (await count(`select count(*) n from trucks`)) === 0 && (await count(`select count(*) n from purchases_safe`)) === 0);
+await expectError("Deactivated manager cannot insert", `insert into drivers(name) values ('x')`, "not linked to an active organization");
+await asAdmin();
+
+// =====================================================================================
+// Demo seed applies to its own org on a fresh database, separate from other sign-ups.
+section = "Demo seed";
+db = await freshDb();
+await db.exec(`insert into auth.users(id, email, raw_user_meta_data) values
+  ('${A_OWNER}', 'demo@petrotrack.test', '{"business_name":"Demo","full_name":"Demo Owner"}'),
+  ('${B_OWNER}', 'real@customer.ke', '{"business_name":"Real Customer","full_name":"Real"}')`);
 try {
-  await seedDb.exec(readFileSync(join(root, "supabase/seed_demo.sql"), "utf8"));
-  const c = (await seedDb.query(`select (select count(*) from trucks) t, (select count(*) from tanks) k,
-    (select count(*) from purchases) p, (select count(*) from sales) s`)).rows[0];
-  checkTrue("Seed: 3 trucks, 3 tanks, purchases and sales created",
-    Number(c.t) === 3 && Number(c.k) === 3 && Number(c.p) > 0 && Number(c.s) > 0, JSON.stringify(c));
+  await db.exec(readFileSync(join(root, "supabase/seed_demo.sql"), "utf8"));
+  const demoOrg = (await one(`select org_id from profiles where id = '${A_OWNER}'`)).org_id;
+  const realOrg = (await one(`select org_id from profiles where id = '${B_OWNER}'`)).org_id;
+  const c = await one(`select (select count(*) from trucks where org_id = '${demoOrg}') t,
+    (select count(*) from tanks where org_id = '${demoOrg}') k, (select count(*) from purchases where org_id = '${demoOrg}') p,
+    (select count(*) from sales where org_id = '${demoOrg}') s, (select is_demo from organizations where id = '${demoOrg}') d`);
+  checkTrue("Seed: demo org has 3 trucks, 3 tanks, purchases and sales, flagged is_demo",
+    Number(c.t) === 3 && Number(c.k) === 3 && Number(c.p) > 0 && Number(c.s) > 0 && c.d === true, JSON.stringify(c));
+  checkTrue("Seed: other organizations untouched",
+    (await count(`select count(*) n from trucks where org_id = '${realOrg}'`)) === 0 &&
+    (await one(`select is_demo from organizations where id = '${realOrg}'`)).is_demo === false);
+  await expectError("Seed refuses to run twice", readFileSync(join(root, "supabase/seed_demo.sql"), "utf8"), "already");
 } catch (e) {
-  checkTrue("Seed: applies cleanly", false, `(${e.message})`);
+  checkTrue("Seed applies cleanly", false, `(${e.message})`);
 }
 
+// =====================================================================================
+let current = "";
 for (const r of results) {
+  if (r.section !== current) {
+    current = r.section;
+    console.log(`\n== ${current}`);
+  }
   console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.name}  -> got ${r.actual}, expected ${r.expected}`);
 }
 console.log(`\n${passed} passed, ${failed} failed`);
