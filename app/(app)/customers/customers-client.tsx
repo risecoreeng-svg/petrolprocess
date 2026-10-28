@@ -11,6 +11,7 @@ import { Field, Input, Select } from "@/components/ui/form-controls";
 import { Badge, EmptyState, PageHeader, Stat } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { InfoTip } from "@/components/ui/info-tip";
 
 export type BalanceRow = {
   customer_id: string;
@@ -70,6 +71,7 @@ export function CustomersClient({
     <>
       <PageHeader
         title="Customers & credit"
+        description="Who owes you money for fuel taken on credit, and who is late."
         actions={
           <Button onClick={() => setEditing("new")}>
             <Plus /> Customer
@@ -79,14 +81,14 @@ export function CustomersClient({
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat label="Money owed" value={kes(owed)} />
-        <Stat label="Overdue" value={kes(overdueTotal)} sub={`${overdue.length} customers`} tone={overdueTotal > 0 ? "negative" : undefined} />
+        <Stat label="Late" value={kes(overdueTotal)} sub={`${overdue.length} ${overdue.length === 1 ? "customer" : "customers"}`} tip={<InfoTip>Money still unpaid after the number of days you gave the customer to pay.</InfoTip>} tone={overdueTotal > 0 ? "negative" : undefined} />
         <Stat label="Credit customers" value={balances.length} />
       </div>
 
       {overdue.length > 0 ? (
-        <div className="mb-6 rounded-xl border border-destructive/40 bg-red-50 p-4">
-          <p className="mb-2 flex items-center gap-2 font-semibold text-destructive">
-            <TriangleAlert className="size-4" /> Overdue
+        <div className="mb-6 rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-[var(--shadow-soft)] sm:p-[26px]">
+          <p className="card-title mb-3 flex items-center gap-2">
+            <span className="grid size-8 place-items-center rounded-full bg-orange text-white"><TriangleAlert className="size-4" /></span> Late payers
           </p>
           <ul className="grid gap-2">
             {overdue.map((b) => (
@@ -97,7 +99,7 @@ export function CustomersClient({
                   <span className="text-muted-foreground"> · {b.credit_terms_days}-day terms</span>
                 </span>
                 <span className="flex items-center gap-2">
-                  <span className="font-semibold tabular-nums text-destructive">{kes(b.overdue)}</span>
+                  <span className="font-semibold tabular-nums text-orange">{kes(b.overdue)}</span>
                   <Button size="sm" variant="outline" onClick={() => setPaying(b)}>
                     Pay
                   </Button>
@@ -120,19 +122,19 @@ export function CustomersClient({
           {balances.map((b) => {
             const used = Number(b.credit_limit) > 0 ? (Number(b.balance) / Number(b.credit_limit)) * 100 : 0;
             return (
-              <div key={b.customer_id} className="rounded-xl border bg-card p-4 shadow-xs">
+              <div key={b.customer_id} className="rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-[var(--shadow-soft)]">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate font-semibold">{b.name}</p>
                     <p className="text-xs text-muted-foreground">{b.phone ?? "No phone"}</p>
                   </div>
-                  {Number(b.overdue) > 0 ? <Badge variant="destructive">Overdue</Badge> : null}
+                  {Number(b.overdue) > 0 ? <Badge variant="destructive">Late</Badge> : null}
                 </div>
-                <p className={cn("mt-2 text-2xl font-bold tabular-nums", Number(b.balance) > 0 && "text-destructive")}>
+                <p className={cn("mt-3 text-[28px] font-semibold tracking-[-0.02em] tabular-nums", Number(b.balance) > 0 && "text-orange")}>
                   {kes(b.balance)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  of {kes(b.credit_limit)} limit ({Math.round(used)}%) · paid {kes(b.total_paid)} to date
+                  owed · can owe up to {kes(b.credit_limit)} ({Math.round(used)}% used) · paid {kes(b.total_paid)} so far
                 </p>
                 <div className="mt-3 flex gap-2">
                   <Button size="sm" className="flex-1" onClick={() => setPaying(b)} disabled={Number(b.balance) <= 0}>
@@ -148,7 +150,7 @@ export function CustomersClient({
         </div>
       )}
 
-      <h2 className="mb-2 mt-8 font-semibold">Recent payments</h2>
+      <h2 className="card-title mb-3 mt-8">Recent payments</h2>
       {payments.length === 0 ? (
         <EmptyState title="No payments yet" />
       ) : (
@@ -223,7 +225,7 @@ function CustomerForm({ customer, onClose }: { customer: BalanceRow | null; onCl
           <Field label="Credit limit (KES)" htmlFor="climit" error={errors.credit_limit}>
             <Input id="climit" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} />
           </Field>
-          <Field label="Terms (days)" htmlFor="cterms" error={errors.credit_terms_days}>
+          <Field label="Days to pay" htmlFor="cterms" error={errors.credit_terms_days}>
             <Input id="cterms" inputMode="numeric" value={terms} onChange={(e) => setTerms(e.target.value)} />
           </Field>
         </div>
@@ -277,8 +279,8 @@ function PaymentForm({ customer, customers, onClose }: { customer: BalanceRow; c
               type="button"
               onClick={() => setMethod(m)}
               className={cn(
-                "h-12 rounded-xl border-2 font-medium",
-                method === m ? "border-primary bg-accent" : "border-border",
+                "h-14 rounded-[var(--radius-tile)] font-medium",
+                method === m ? "bg-black text-white shadow-[var(--shadow-lift)]" : "bg-surface-3 shadow-[var(--shadow-soft)]",
               )}
             >
               {m === "mpesa" ? "M-Pesa" : "Cash"}
@@ -286,12 +288,12 @@ function PaymentForm({ customer, customers, onClose }: { customer: BalanceRow; c
           ))}
         </div>
         {selected ? (
-          <div className="flex justify-between rounded-lg bg-muted p-3 text-sm">
+          <div className="inner-box flex justify-between text-[15px]">
             <span className="text-muted-foreground">Balance after payment</span>
-            <span className={cn("font-semibold tabular-nums", after < 0 && "text-destructive")}>{kes(after)}</span>
+            <span className={cn("font-semibold tabular-nums", after < 0 && "text-orange")}>{kes(after)}</span>
           </div>
         ) : null}
-        {after < 0 ? <p className="text-sm text-destructive">Payment is more than the balance owed.</p> : null}
+        {after < 0 ? <p className="text-[15px] text-orange">That&apos;s more than they owe.</p> : null}
         <Button type="submit" size="lg" disabled={pending}>
           Record payment
         </Button>
