@@ -9,6 +9,7 @@ import { CurrencySwitcher } from "@/components/currency-switcher";
 import { displayCurrency, getMoneyContext } from "@/lib/money-server";
 import { PageHeader } from "@/components/ui/misc";
 import { ReportsClient, type Report } from "./reports-client";
+import { buildFleetReports } from "@/lib/fleet-reports";
 
 type Num = number | string | null;
 const n = (v: Num | undefined) => Number(v ?? 0);
@@ -20,8 +21,9 @@ export default async function ReportsPage({
   searchParams: Promise<{ range?: string; from?: string; to?: string; tab?: string; cur?: string }>;
 }) {
   const sp = await searchParams;
-  const profile = await requireRole("owner", "manager");
+  const profile = await requireRole("owner", "manager", "fleet_manager");
   const isOwner = profile.role === "owner";
+  const isFleet = profile.role === "fleet_manager";
   const { range, from, to } = resolveRange(sp);
   const disp = displayCurrency(await getMoneyContext(), sp.cur);
   const supabase = await createClient();
@@ -172,7 +174,7 @@ export default async function ReportsPage({
   });
   const truckReport: Report = {
     key: "truck",
-    title: "Per truck",
+    title: "Depot deliveries per truck",
     note: isOwner ? "Fuel margin is an estimate: litres the truck brought × (today's pump price − what each litre really cost, transport included)." : undefined,
     columns: isOwner
       ? [
@@ -226,6 +228,10 @@ export default async function ReportsPage({
   };
 
   const period = from === to ? formatDate(from) : `${formatDate(from)} – ${formatDate(to)}`;
+  // Depot reports for owner and sales manager; truck reports for owner and fleet manager.
+  const depotReports = isFleet ? [] : [dailyReport, monthlyReport, plReport, truckReport, fuelReport];
+  const truckReports = isOwner || isFleet ? await buildFleetReports(from, to, isOwner) : [];
+  const reports: Report[] = [...depotReports, ...truckReports];
 
   return (
     <>
@@ -239,7 +245,7 @@ export default async function ReportsPage({
         </Suspense>
       </div>
       <ReportsClient
-        reports={[dailyReport, monthlyReport, plReport, truckReport, fuelReport]}
+        reports={reports}
         period={period}
         fileSuffix={`${from}_${to}`}
         display={{ code: disp.code, rate: disp.rate }}
