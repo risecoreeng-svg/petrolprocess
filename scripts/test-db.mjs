@@ -113,7 +113,7 @@ checkTrue("Staff join the owner's org with the given role",
   (await one(`select role from profiles where id = '${A_ATT}'`)).role === "attendant");
 await expectError("Staff path cannot create a second owner",
   `insert into auth.users(id, email, raw_app_meta_data) values (gen_random_uuid(), 'x@alpha.ke', '{"org_id":"${ORG_A}","role":"owner"}')`,
-  "only be managers or attendants");
+  "Staff accounts can only be");
 await expectError("Staff path rejects an unknown organization",
   `insert into auth.users(id, email, raw_app_meta_data) values (gen_random_uuid(), 'y@alpha.ke', '{"org_id":"00000000-0000-0000-0000-00000000dead","role":"attendant"}')`,
   "Organization not found");
@@ -534,6 +534,240 @@ checkTrue("Org A daily_summary / monthly_summary / daily_sales_summary exclude o
   return d === own && m === own && ds2 === own;
 })());
 
+// =====================================================================================
+// Truck Business module (spliced into test-db.mjs before "Signed out and deactivated").
+section = "Truck business: roles and trips";
+const A_FLEET = "a0000000-0000-0000-0000-000000000004";
+const A_DRIVER_USER = "a0000000-0000-0000-0000-000000000005";
+const A_DRV = "a7000000-0000-0000-0000-000000000001";
+const B_DRV = "b7000000-0000-0000-0000-000000000002";
+const B_TRIP = "bd000000-0000-0000-0000-000000000001";
+await asAdmin();
+await db.exec(`insert into drivers(id, org_id, name, licence_expiry) values ('${A_DRV}', '${ORG_A}', 'Driver A', current_date + 400)`);
+await db.exec(`insert into auth.users(id, email, raw_app_meta_data) values
+  ('${A_FLEET}', 'fleet@alpha.ke', '{"org_id":"${ORG_A}","role":"fleet_manager"}'),
+  ('${A_DRIVER_USER}', 'drv@alpha.ke', '{"org_id":"${ORG_A}","role":"driver","driver_id":"${A_DRV}"}')`);
+checkTrue("Fleet manager and driver accounts join org A", (await one(`select role from profiles where id = '${A_FLEET}'`)).role === "fleet_manager");
+checkTrue("Driver login is linked to its driver record", (await one(`select profile_id from drivers where id = '${A_DRV}'`)).profile_id === A_DRIVER_USER);
+
+// Trip T1: goods for a client, fee in SDG (rate 3,000), extras and expenses in USD/SSP (rate 5,000).
+await asUser(A_FLEET);
+const T1 = (await one(`insert into trips(truck_id, driver_id, customer_id, route_from, route_to, cargo_type, currency, fee_original)
+  values ('${A_TRUCK}', '${A_DRV}', '${A_CUST}', 'Port Sudan', 'Khartoum', 'goods', 'SDG', 3000000) returning id, fee, trip_no`));
+check("Trip fee 3,000,000 SDG at 3,000 is 1,000.00 USD", T1.fee, 1000);
+checkTrue("Trips are numbered per organization", Number(T1.trip_no) === 1);
+await db.exec(`insert into trip_lines(trip_id, kind, category, currency, original_amount) values
+  ('${T1.id}', 'income', 'waiting_time', 'USD', 50),
+  ('${T1.id}', 'expense', 'fuel', 'SSP', 500000),
+  ('${T1.id}', 'expense', 'tolls_border', 'USD', 30)`);
+await expectError("A fleet manager cannot record driver pay",
+  `insert into trip_lines(trip_id, kind, category, currency, original_amount) values ('${T1.id}', 'expense', 'driver_pay', 'USD', 70)`,
+  "Only the owner can record staff pay");
+await asUser(A_OWNER);
+await db.exec(`insert into trip_lines(trip_id, kind, category, currency, original_amount, driver_id) values ('${T1.id}', 'expense', 'driver_pay', 'USD', 70, '${A_DRV}')`);
+await asUser(A_FLEET);
+await db.exec(`select start_trip('${T1.id}', 1000)`);
+await db.exec(`select record_delivery('${T1.id}', null, 1800)`);
+await asUser(A_OWNER);
+const tp1 = await one(`select income, trip_expenses, profit, km, profit_per_km from trip_profit where trip_id = '${T1.id}'`);
+check("Trip income in USD: 1,000 fee + 50 waiting time", tp1.income, 1050);
+check("Trip expenses in USD: 500,000 SSP (100) + 30 tolls + 70 driver pay", tp1.trip_expenses, 200);
+check("Trip profit in mixed currencies = 1,050 − 200 = 850.00 USD", tp1.profit, 850);
+check("Profit per km over 800 km", tp1.profit_per_km, 850 / 800);
+
+section = "Truck business: fleet manager cannot see profit or pay";
+await asUser(A_FLEET);
+checkTrue("Fleet manager sees no rows in trip_profit / trip_financials / truck_daily_summary",
+  (await count(`select count(*) n from trip_profit`)) === 0 && (await count(`select count(*) n from trip_financials`)) === 0 &&
+  (await count(`select count(*) n from truck_daily_summary`)) === 0);
+checkTrue("Fleet manager can't see the driver pay line (sees 3 of 4 lines)",
+  (await count(`select count(*) n from trip_lines where trip_id = '${T1.id}'`)) === 3);
+checkTrue("Fleet manager can't read the depot's sales or margins",
+  (await count(`select count(*) n from sales_safe`)) === 0 && (await count(`select count(*) n from stock_value`)) === 0);
+await expectError("Fleet manager can't record a driver salary",
+  `insert into truck_expenses(truck_id, category, currency, original_amount) values ('${A_TRUCK}', 'driver_salary', 'USD', 300)`, "Only the owner");
+await asUser(A_OWNER);
+await db.exec(`insert into truck_expenses(truck_id, category, currency, original_amount, driver_id) values ('${A_TRUCK}', 'driver_salary', 'USD', 300, '${A_DRV}'),
+  ('${A_TRUCK}', 'tyres', 'SDG', 600000, null)`);
+check("Truck expense of 600,000 SDG is 200.00 USD", (await one(`select amount from truck_expenses where original_amount = 600000`)).amount, 200);
+await asUser(A_FLEET);
+checkTrue("Fleet manager sees the tyres but not the salary", (await count(`select count(*) n from truck_expenses`)) === 1);
+
+section = "Truck business: fuel haulage";
+await asUser(A_FLEET);
+const T2 = (await one(`insert into trips(truck_id, driver_id, customer_id, route_from, route_to, cargo_type, currency, fee_original,
+  fuel_type_id, litres_loaded, loaded_from, loading_ticket)
+  values ('${A_TRUCK}', '${A_DRV}', '${A_CUST}', 'Kosti depot', 'El Obeid', 'fuel', 'USD', 2000, '${A_DIESEL}', 30000, 'Kosti depot', 'LT-1001') returning id`)).id;
+await db.exec(`select start_trip('${T2}')`);
+await db.exec(`select record_delivery('${T2}', 29700)`);
+const h2 = await one(`select shortage_litres, shortage_pct, haulage_status from trips where id = '${T2}'`);
+check("Shortage = 30,000 loaded − 29,700 delivered = 300 L", h2.shortage_litres, 300);
+check("Shortage % = 1.000%", h2.shortage_pct, 1);
+checkTrue("1% is above the 0.5% tolerance → Disputed", h2.haulage_status === "disputed");
+const T3 = (await one(`insert into trips(truck_id, customer_id, route_from, route_to, cargo_type, currency, fee_original,
+  fuel_type_id, litres_loaded) values ('${A_TRUCK}', '${A_CUST}', 'Kosti', 'Rabak', 'fuel', 'USD', 500, '${A_DIESEL}', 10000) returning id`)).id;
+await db.exec(`select record_delivery('${T3}', 9980)`);
+checkTrue("0.2% shortage is within tolerance → OK", (await one(`select haulage_status s from trips where id = '${T3}'`)).s === "ok");
+await asUser(A_OWNER);
+await db.exec(`update organizations set haulage_tolerance_pct = 0.1`);
+await asUser(A_FLEET);
+await expectError("Delivered litres can't exceed loaded litres", `select record_delivery('${(await one(`insert into trips(truck_id, customer_id, route_from, route_to, cargo_type, currency, fuel_type_id, litres_loaded)
+  values ('${A_TRUCK}', '${A_CUST}', 'A', 'B', 'fuel', 'USD', '${A_DIESEL}', 100) returning id`)).id}', 101)`, "can't be more than loaded");
+await db.exec(`select set_haulage_status('${T2}', 'resolved', 'Driver paid for 300 L')`);
+checkTrue("A dispute can be resolved with a note", (await one(`select haulage_status s, dispute_note n from trips where id = '${T2}'`)).n === "Driver paid for 300 L");
+
+section = "Truck business: own-depot fuel goes into stock exactly once";
+await asAdmin();
+const tankBefore = Number((await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l);
+await asUser(A_FLEET);
+const T4 = (await one(`insert into trips(truck_id, driver_id, for_own_depot, route_from, route_to, cargo_type, currency, fee_original,
+  fuel_type_id, litres_loaded, supplier_id, tank_id)
+  values ('${A_TRUCK}', '${A_DRV}', true, 'Supplier depot', 'Our depot', 'fuel', 'USD', 0, '${A_PETROL}', 5000, '${A_SUP}', '${A_TANK}') returning id`)).id;
+await db.exec(`select start_trip('${T4}')`);
+// The driver reports litres first: this must NOT put fuel into stock.
+await asUser(A_DRIVER_USER);
+await db.exec(`select record_delivery('${T4}', 4990, null)`);
+await asAdmin();
+check("Driver's report alone doesn't change the tank", (await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l, tankBefore);
+await asUser(A_FLEET);
+await db.exec(`select record_delivery('${T4}', null, null, null, null, null, 1.0, null, 'USD')`);
+await asAdmin();
+check("Delivering own-depot fuel adds the 4,990 L delivered to the tank", (await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l, tankBefore + 4990);
+checkTrue("One stock purchase is linked to the trip", (await count(`select count(*) n from purchases where trip_id = '${T4}' and deleted_at is null`)) === 1);
+await asUser(A_FLEET);
+await expectError("Delivering the same trip again is refused",
+  `select record_delivery('${T4}', null, null, null, null, null, 1.0, null, 'USD')`, "already been delivered");
+await asAdmin();
+check("…and the tank is unchanged (fuel counted exactly once)", (await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l, tankBefore + 4990);
+await expectError("The database refuses a second purchase for the same trip",
+  `insert into purchases(org_id, supplier_id, truck_id, tank_id, litres, cost_per_litre, trip_id)
+   values ('${ORG_A}', '${A_SUP}', '${A_TRUCK}', '${A_TANK}', 1, 1, '${T4}')`, "duplicate key");
+
+section = "Truck business: voiding a trip";
+await asUser(A_FLEET);
+await expectError("Voiding needs a reason", `select void_trip('${T4}', ' ')`, "Give a reason");
+await db.exec(`select void_trip('${T4}', 'Entered against the wrong truck')`);
+await asAdmin();
+const v4 = await one(`select deleted_at, void_reason from trips where id = '${T4}'`);
+checkTrue("Voided trip keeps its reason and is not deleted", !!v4.deleted_at && v4.void_reason === "Entered against the wrong truck");
+check("Voiding an own-depot trip takes its fuel back out of the tank", (await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l, tankBefore);
+await expectError("Trips can't be hard-deleted", `delete from trips where id = '${T4}'`, "Hard delete is not allowed");
+checkTrue("The void is in the audit log",
+  (await count(`select count(*) n from audit_log where table_name = 'trips' and record_id = '${T4}' and action = 'SOFT_DELETE'`)) === 1);
+
+section = "Truck business: documents block starting a trip";
+await asAdmin();
+await db.exec(`insert into truck_documents(org_id, truck_id, doc_type, expires_on) values ('${ORG_A}', '${A_TRUCK}', 'insurance', current_date - 1)`);
+await asUser(A_FLEET);
+const T5 = (await one(`insert into trips(truck_id, driver_id, customer_id, route_from, route_to, currency, fee_original)
+  values ('${A_TRUCK}', '${A_DRV}', '${A_CUST}', 'Khartoum', 'Atbara', 'USD', 400) returning id`)).id;
+await expectError("Expired insurance blocks a fleet manager from starting the trip", `select start_trip('${T5}')`, "Insurance expired");
+await asUser(A_OWNER);
+await expectError("The owner must give a reason to override", `select start_trip('${T5}')`, "Only the owner can start this trip, with a reason");
+await db.exec(`select start_trip('${T5}', null, 'Renewal paid, certificate on the way')`);
+await asAdmin();
+checkTrue("Owner override is recorded with its reason",
+  (await one(`select status, start_override_reason r from trips where id = '${T5}'`)).r === "Renewal paid, certificate on the way");
+
+section = "Truck business: driver phone view";
+await asUser(A_DRIVER_USER);
+checkTrue("Driver sees their own trips in driver_trips", (await count(`select count(*) n from driver_trips`)) >= 2);
+checkTrue("Driver can't read the trips table (fees stay hidden)", (await count(`select count(*) n from trips`)) === 0);
+await db.exec(`insert into trip_lines(trip_id, kind, category, currency, original_amount) values ('${T5}', 'expense', 'meals', 'SDG', 30000)`);
+checkTrue("Driver can add an expense to their own trip", (await count(`select count(*) n from trip_lines where trip_id = '${T5}'`)) === 1);
+await expectError("Driver can't add an expense to someone else's trip",
+  `insert into trip_lines(trip_id, kind, category, currency, original_amount) values ('${T3}', 'expense', 'meals', 'USD', 5)`, "row-level security");
+await expectError("Driver can't add income", `insert into trip_lines(trip_id, kind, category, currency, original_amount) values ('${T5}', 'income', 'extra_drop', 'USD', 5)`, "");
+await db.exec(`select record_delivery('${T5}', null, 2400)`);
+await asAdmin();
+checkTrue("A driver's delivery report completes a client trip", (await one(`select status from trips where id = '${T5}'`)).status === "delivered");
+
+section = "Truck business: clients and money owed";
+await asUser(A_FLEET);
+// Delivered for A_CUST: T1 1,050 + T2 2,000 + T3 500 + T5 400 = 3,950 USD
+check("Client owes 3,950.00 USD for delivered trips", (await one(`select owed from trip_client_balances where customer_id = '${A_CUST}'`)).owed, 3950);
+await db.exec(`insert into trip_payments(customer_id, trip_id, method, currency, original_amount) values ('${A_CUST}', '${T1.id}', 'bank', 'SDG', 3000000)`);
+check("A 3,000,000 SDG payment (1,000 USD) leaves 2,950.00 USD owed", (await one(`select owed from trip_client_balances where customer_id = '${A_CUST}'`)).owed, 2950);
+await expectError("A client can't pay more than they owe",
+  `insert into trip_payments(customer_id, method, currency, original_amount) values ('${A_CUST}', 'cash', 'USD', 5000)`, "more than the client owes");
+await asUser(A_OWNER);
+checkTrue("Trucks P&L feeds the dashboard toggle (owner)", (await count(`select count(*) n from truck_daily_summary`)) >= 1);
+
+section = "Truck business: repeating expenses and reminders";
+await asUser(A_OWNER);
+await db.exec(`insert into truck_recurring_expenses(truck_id, category, currency, original_amount, next_due) values ('${A_TRUCK}', 'insurance', 'USD', 120, current_date - 40)`);
+const posted = Number((await one(`select post_recurring_expenses() n`)).n);
+checkTrue("Overdue monthly item posts one expense per month due (2)", posted === 2, `(${posted})`);
+checkTrue("Posting again does nothing (idempotent)", Number((await one(`select post_recurring_expenses() n`)).n) === 0);
+await db.exec(`insert into service_reminders(truck_id, name, every_km, last_done_km) values ('${A_TRUCK}', 'Oil change', 10000, 0)`);
+const rem = (await one(`select id from service_reminders where name = 'Oil change'`)).id;
+await db.exec(`select mark_service_done('${rem}', 2500)`);
+checkTrue("Marking a service done records the odometer and moves the truck's odometer forward",
+  Number((await one(`select last_done_km k from service_reminders where id = '${rem}'`)).k) === 2500 &&
+  Number((await one(`select odometer_km k from trucks where id = '${A_TRUCK}'`)).k) >= 2500);
+
+section = "Truck business: cross-tenant isolation";
+await asAdmin();
+await db.exec(`
+  insert into drivers(id, org_id, name) values ('${B_DRV}', '${ORG_B}', 'Driver B');
+  insert into trips(id, org_id, truck_id, driver_id, customer_id, route_from, route_to, currency, fee_original)
+    values ('${B_TRIP}', '${ORG_B}', '${B_TRUCK}', '${B_DRV}', '${B_CUST}', 'Juba', 'Nimule', 'USD', 900);
+  select deliver_trip_internal('${B_TRIP}', null, null, null, null, null, null, null, null, null, true);
+  insert into trip_lines(org_id, trip_id, kind, category, currency, original_amount) values ('${ORG_B}', '${B_TRIP}', 'expense', 'fuel', 'USD', 100);
+  insert into truck_expenses(org_id, truck_id, category, currency, original_amount) values ('${ORG_B}', '${B_TRUCK}', 'tyres', 'USD', 50);
+  insert into truck_recurring_expenses(org_id, truck_id, category, currency, original_amount, next_due) values ('${ORG_B}', '${B_TRUCK}', 'insurance', 'USD', 10, current_date + 5);
+  insert into truck_documents(org_id, truck_id, doc_type, expires_on) values ('${ORG_B}', '${B_TRUCK}', 'licence', current_date + 10);
+  insert into service_reminders(org_id, truck_id, name, every_days) values ('${ORG_B}', '${B_TRUCK}', 'Inspection', 90);
+  insert into trip_payments(org_id, customer_id, trip_id, method, currency, original_amount) values ('${ORG_B}', '${B_CUST}', '${B_TRIP}', 'cash', 'USD', 100);
+  insert into driver_advances(org_id, trip_id, driver_id, kind, currency, original_amount) values ('${ORG_B}', '${B_TRIP}', '${B_DRV}', 'given', 'USD', 40);`);
+const FLEET_TABLES = ["trips", "trip_lines", "truck_expenses", "truck_recurring_expenses", "truck_documents",
+  "service_reminders", "trip_payments", "driver_advances"];
+const FLEET_VIEWS = ["trip_financials", "trip_profit", "trip_client_balances", "driver_trips"];
+const fleetSnapshot = async () => {
+  await asAdmin();
+  const parts = [];
+  for (const t of FLEET_TABLES) parts.push(JSON.stringify((await db.query(`select * from ${t} where org_id = '${ORG_B}' order by id`)).rows));
+  return parts.join("|");
+};
+const FLEET_B_BEFORE = await fleetSnapshot();
+for (const [label, uid] of [["owner", A_OWNER], ["fleet manager", A_FLEET], ["driver", A_DRIVER_USER]]) {
+  await asUser(uid);
+  const leaks = [];
+  for (const t of FLEET_TABLES) if ((await count(`select count(*) n from ${t} where org_id = '${ORG_B}'`)) > 0) leaks.push(t);
+  for (const v of FLEET_VIEWS) if ((await count(`select count(*) n from ${v} where org_id = '${ORG_B}'`)) > 0) leaks.push(v);
+  checkTrue(`Org A ${label} reads 0 org B rows from ${FLEET_TABLES.length} new tables and ${FLEET_VIEWS.length} views`, leaks.length === 0, leaks.join(","));
+  if (label === "driver") continue;
+  await expectError(`Org A ${label} can't create a trip with org B's truck`,
+    `insert into trips(truck_id, customer_id, route_from, route_to, currency) values ('${B_TRUCK}', '${A_CUST}', 'x', 'y', 'USD')`, "Truck not found");
+  await expectError(`Org A ${label} can't create a trip for org B's client`,
+    `insert into trips(truck_id, customer_id, route_from, route_to, currency) values ('${A_TRUCK}', '${B_CUST}', 'x', 'y', 'USD')`, "Client not found");
+  await expectError(`Org A ${label} can't add lines to org B's trip`,
+    `insert into trip_lines(trip_id, kind, category, currency, original_amount) values ('${B_TRIP}', 'expense', 'fuel', 'USD', 1)`, "Trip not found");
+  await expectError(`Org A ${label} can't add a truck expense to org B's truck`,
+    `insert into truck_expenses(truck_id, category, currency, original_amount) values ('${B_TRUCK}', 'tyres', 'USD', 1)`, "Truck not found");
+  await expectError(`Org A ${label} can't take a payment from org B's client`,
+    `insert into trip_payments(customer_id, method, currency, original_amount) values ('${B_CUST}', 'cash', 'USD', 1)`, "Client not found");
+  for (const fn of [`start_trip('${B_TRIP}')`, `record_delivery('${B_TRIP}', 1)`, `cancel_trip('${B_TRIP}', 'x')`,
+                    `void_trip('${B_TRIP}', 'x')`, `set_haulage_status('${B_TRIP}', 'ok', null)`]) {
+    await expectError(`Org A ${label} can't run ${fn.split("(")[0]} on org B's trip`, `select ${fn}`, "not found");
+  }
+  const edits = [
+    `update trips set notes = 'x' where id = '${B_TRIP}'`,
+    `update trip_lines set description = 'x' where org_id = '${ORG_B}'`,
+    `update truck_expenses set description = 'x' where org_id = '${ORG_B}'`,
+    `update truck_recurring_expenses set active = false where org_id = '${ORG_B}'`,
+    `update truck_documents set notes = 'x' where org_id = '${ORG_B}'`,
+    `update service_reminders set notes = 'x' where org_id = '${ORG_B}'`,
+    `update trip_payments set deleted_at = now() where org_id = '${ORG_B}'`,
+    `update driver_advances set deleted_at = now() where org_id = '${ORG_B}'`,
+  ];
+  const editLeaks = [];
+  for (const sql of edits) if (!(await expectRlsBlock(sql))) editLeaks.push(sql.split(" ")[1]);
+  checkTrue(`Org A ${label} can't edit or void anything in org B's truck business (${edits.length} attempts)`, editLeaks.length === 0, editLeaks.join(","));
+}
+checkTrue("Org B's truck business data is unchanged after all attempts", (await fleetSnapshot()) === FLEET_B_BEFORE);
+await asAdmin();
+
 section = "Signed out and deactivated";
 await asAnon();
 await expectError("Signed-out visitors cannot read tables", `select count(*) from trucks`, "permission denied");
@@ -600,6 +834,12 @@ try {
     (select count(*) from sales where org_id = '${demoOrg}') s, (select is_demo from organizations where id = '${demoOrg}') d`);
   checkTrue("Seed: demo org has 3 trucks, 3 tanks, purchases and sales, flagged is_demo",
     Number(c.t) === 3 && Number(c.k) === 3 && Number(c.p) > 0 && Number(c.s) > 0 && c.d === true, JSON.stringify(c));
+  const fleet = await one(`select (select count(*) from trips where org_id = '${demoOrg}') trips,
+    (select count(*) from trips where org_id = '${demoOrg}' and haulage_status = 'disputed') disputed,
+    (select count(*) from purchases where trip_id is not null and org_id = '${demoOrg}') own_fuel,
+    (select count(*) from drivers where org_id = '${demoOrg}') drivers`);
+  checkTrue("Seed: 6 trips, one disputed fuel haulage, own-depot fuel in stock, 2+ drivers",
+    Number(fleet.trips) === 6 && Number(fleet.disputed) === 1 && Number(fleet.own_fuel) === 1 && Number(fleet.drivers) >= 2, JSON.stringify(fleet));
   checkTrue("Seed: other organizations untouched",
     (await count(`select count(*) n from trucks where org_id = '${realOrg}'`)) === 0 &&
     (await one(`select is_demo from organizations where id = '${realOrg}'`)).is_demo === false);
