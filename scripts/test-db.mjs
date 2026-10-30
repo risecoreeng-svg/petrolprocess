@@ -259,8 +259,9 @@ await expectError("Credit sale over limit is rejected (600 L x 180 > 100,000)",
   `insert into sales(tank_id, litres, payment_type, customer_id) values ('${A_TANK}', 600, 'credit', '${A_CUST}');`, "Credit limit exceeded");
 const mob = (await db.query(`insert into sales(tank_id, litres, payment_type) values ('${A_TANK}', 10, 'mobile') returning id`)).rows[0];
 checkTrue("Mobile money sale without a reference is allowed", !!mob);
-await expectError("Cancelling a sale needs a reason", `update sales set deleted_at = now() where id = '${mob.id}'`, "Give a reason");
-await db.exec(`update sales set deleted_at = now(), void_reason = 'Test sale' where id = '${mob.id}'`);
+await expectError("Deleting a sale needs a reason", `select delete_record('sale', '${mob.id}', null)`, "Choose a reason");
+await expectError("'Other' needs a note", `select delete_record('sale', '${mob.id}', 'Other', '  ')`, "Say why");
+await db.exec(`select delete_record('sale', '${mob.id}', 'Test data')`);
 await expectError("Adding stock without a truck is rejected",
   `select add_stock(p_fuel_type_id := '${A_PETROL}', p_litres := 100, p_cost_per_litre := 150, p_tank_id := '${A_TANK}', p_supplier_id := '${A_SUP}')`, "Choose or add a truck");
 await asAdmin();
@@ -278,7 +279,7 @@ await expectError("Credit: overpayment is rejected",
 await asAdmin();
 const litresBeforeVoid = await tankLitres();
 await asUser(A_OWNER);
-await db.exec(`update sales set deleted_at = now(), void_reason = 'Customer cancelled' where id = 'a8000000-0000-0000-0000-000000000001';`);
+await db.exec(`select delete_record('sale', 'a8000000-0000-0000-0000-000000000001', 'Other', 'Customer cancelled');`);
 await asAdmin();
 check("Void: credit sale void restores tank litres", await tankLitres(), litresBeforeVoid + 500);
 check("Void: credit sale void reduces balance by 90,000", (await one(`select balance from customers where id = '${A_CUST}'`)).balance, -30000);
@@ -303,7 +304,7 @@ checkTrue("Manager sees org A deliveries via purchases_safe", (await count(`sele
 checkTrue("Manager cannot read stock_value / truck_performance",
   (await count(`select count(*) n from stock_value`)) === 0 && (await count(`select count(*) n from truck_performance`)) === 0);
 checkTrue("Manager cannot read audit log", (await count(`select count(*) n from audit_log`)) === 0);
-checkTrue("Sales manager cannot void a sale by editing it directly", (await db.query(`update sales set deleted_at = now(), void_reason = 'x' returning id`)).rows.length === 0);
+await expectError("Sales manager cannot delete a sale by editing it directly", `update sales set deleted_at = now(), void_reason = 'x'`, "permission denied");
 checkTrue("Sales manager cannot read profit (sale cost) columns", (await count(`select count(*) n from sales`)) === 0);
 checkTrue("Manager cannot change staff roles",
   (await db.query(`update profiles set role = 'attendant' where id = '${A_ATT}' returning id`)).rows.length === 0);
@@ -819,6 +820,164 @@ await expectError("An attendant can't read sale history", `select * from sale_hi
 await asUser(A_OWNER);
 checkTrue("The ledger never shows another organization's sales", (await count(`select count(*) n from sales_ledger where org_id = '${ORG_B}'`)) === 0);
 await expectError("Sale history refuses another organization's sale", `select * from sale_history('${B_SALE}')`, "Sale not found");
+await asAdmin();
+
+// =====================================================================================
+// Migration 009: delete (soft), deleted items, restore, edit.
+section = "Delete: purchases, stock and average cost";
+const T9 = "a2000000-0000-0000-0000-000000000009";
+await asAdmin();
+await db.exec(`insert into tanks(id, org_id, name, fuel_type_id, capacity_litres, current_litres, low_stock_level)
+  values ('${T9}', '${ORG_A}', 'T9', '${A_PETROL}', 50000, 0, 100)`);
+const t9 = async () => Number((await one(`select current_litres l from tanks where id = '${T9}'`)).l);
+const t9avg = async () => Number((await one(`select avg_cost_per_litre a from tank_costing where tank_id = '${T9}'`)).a);
+const buy9 = (litres, cpl) => `select add_stock(p_fuel_type_id := '${A_PETROL}', p_litres := ${litres}, p_cost_per_litre := ${cpl},
+    p_tank_id := '${T9}', p_supplier_id := '${A_SUP}', p_truck_id := '${A_TRUCK}', p_trip_cost := 0) id`;
+await asUser(A_OWNER);
+const P1 = (await one(buy9(1000, 1))).id;
+await asUser(A_MANAGER);
+const P2 = (await one(buy9(1000, 3))).id;
+await asAdmin();
+check("Two deliveries: 2,000 L in T9", await t9(), 2000);
+check("…average cost 2.00", await t9avg(), 2);
+await asUser(A_OWNER);
+const sv9 = async () => Number((await one(`select value v from stock_value where tank_id = '${T9}'`)).v);
+check("Stock value before delete: 2,000 L × 2 = 4,000", await sv9(), 4000);
+const prev2 = await one(`select delete_preview('purchase', '${P2}') p`);
+checkTrue("Preview explains the effect in plain words", prev2.p.effect.includes("removes 1,000 L of Petrol from T9"), prev2.p.effect);
+await db.exec(`select delete_record('purchase', '${P2}', 'Wrong amount')`);
+await asAdmin();
+check("Deleting a purchase takes its litres out of the tank", await t9(), 1000);
+check("…and its cost out of the average (back to 1.00)", await t9avg(), 1);
+await asUser(A_OWNER);
+check("…and the stock value on the dashboard drops to 1,000", await sv9(), 1000);
+const p2row = await one(`select deleted_at, deleted_by, delete_reason from purchases where id = '${P2}'`);
+checkTrue("The row is kept, marked deleted, with who and why", !!p2row.deleted_at && p2row.deleted_by === A_OWNER && p2row.delete_reason === "Wrong amount");
+await asAdmin();
+await expectError("A real DELETE is still blocked", `delete from purchases where id = '${P2}'`, "Hard delete is not allowed");
+await expectError("…on expenses too", `delete from expenses`, "Hard delete is not allowed");
+await expectError("…and on trips", `delete from trips`, "Hard delete is not allowed");
+
+section = "Delete: sales put litres back; partly sold deliveries";
+await asUser(A_MANAGER);
+await db.exec(`insert into sales(tank_id, litres, payment_type) values ('${T9}', 300, 'cash')`);
+await asAdmin();
+const S9 = (await one(`select id from sales where tank_id = '${T9}'`)).id;
+check("Sale of 300 L leaves 700 L", await t9(), 700);
+await asUser(A_OWNER);
+const prev1 = (await one(`select delete_preview('purchase', '${P1}') p`)).p;
+checkTrue("Deleting a delivery that was partly sold shows a warning", (prev1.warning ?? "").includes("300 L have been sold from T9"), prev1.warning);
+checkTrue("…and is blocked because the tank would go negative", (prev1.blocked ?? "").includes("Delete the sales from that stock first"), prev1.blocked);
+await expectError("delete_record refuses it too", `select delete_record('purchase', '${P1}', 'Duplicate')`, "Delete the sales from that stock first");
+await asUser(A_MANAGER);
+const prevS = (await one(`select delete_preview('sale', '${S9}') p`)).p;
+checkTrue("Sale preview says the litres go back", prevS.effect.includes("puts 300 L of Petrol back into T9"), prevS.effect);
+checkTrue("…without mentioning cost to a sales manager", !prevS.effect.includes("profit"));
+await db.exec(`select delete_record('sale', '${S9}', 'Entered by mistake')`);
+await asAdmin();
+check("Deleting a sale returns its litres to the tank", await t9(), 1000);
+
+section = "Delete: expenses and net profit";
+await asUser(A_OWNER);
+const netNow = async () => Number((await one(`select coalesce(sum(net_profit), 0) n from daily_summary`)).n);
+const E1 = (await one(`insert into expenses(category, amount) values ('rent', 500) returning id`)).id;
+const netWith = await netNow();
+await db.exec(`select delete_record('expense', '${E1}', 'Duplicate')`);
+check("Deleting a 500 expense raises net profit by 500", (await netNow()) - netWith, 500);
+
+section = "Delete: who may delete";
+await asUser(A_OWNER);
+const EO = (await one(`insert into expenses(category, amount) values ('electricity', 40) returning id`)).id;
+await asUser(A_MANAGER);
+await expectError("A sales manager can't delete someone else's record", `select delete_record('expense', '${EO}', 'Duplicate')`, "entered yourself");
+checkTrue("…and the preview says so", !(await one(`select delete_preview('expense', '${EO}') p`)).p.allowed);
+const EM = (await one(`insert into expenses(category, amount) values ('security', 25) returning id`)).id;
+await asAdmin();
+await db.exec(`update expenses set created_at = now() - interval '25 hours' where id = '${EM}'`);
+await asUser(A_MANAGER);
+await expectError("A sales manager can't delete their own record after 24 hours", `select delete_record('expense', '${EM}', 'Duplicate')`, "within 24 hours");
+await expectError("…or edit it", `select edit_expense('${EM}', current_date, 'security', 30)`, "within 24 hours");
+await asUser(A_OWNER);
+await db.exec(`update organizations set delete_window_hours = 48`);
+await asUser(A_MANAGER);
+await db.exec(`update organizations set delete_window_hours = 168`);
+checkTrue("A sales manager can't change the time window", Number((await one(`select delete_window_hours h from organizations`)).h) === 48);
+await db.exec(`select delete_record('expense', '${EM}', 'Test data')`);
+checkTrue("With a 48-hour window set by the owner, it can be deleted", true);
+await asUser(A_OWNER);
+await db.exec(`update organizations set delete_window_hours = 24`);
+await asUser(A_FLEET);
+await expectError("A fleet manager can't delete depot records", `select delete_record('expense', '${EO}', 'Duplicate')`, "Only the owner");
+const TE9 = (await one(`insert into truck_expenses(truck_id, category, currency, original_amount) values ('${A_TRUCK}', 'tyres', 'USD', 40) returning id`)).id;
+await db.exec(`select delete_record('truck_expense', '${TE9}', 'Entered by mistake')`);
+checkTrue("A fleet manager can delete their own truck expense", true);
+await asUser(A_ATT);
+const SA = (await one(`select id from sales_safe limit 1`)).id;
+await expectError("An attendant can't delete anything", `select delete_record('sale', '${SA}', 'Duplicate')`, "can't delete");
+await expectError("…or preview a delete", `select delete_preview('sale', '${SA}')`, "Not allowed");
+await expectError("…or set deleted_at directly", `update sales set deleted_at = now()`, "permission denied");
+await asUser(A_MANAGER);
+await expectError("Nobody but the owner can restore", `select restore_record('expense', '${EM}')`, "Only the owner");
+
+section = "Restore";
+await asUser(A_OWNER);
+await db.exec(`select restore_record('purchase', '${P2}')`);
+await asAdmin();
+check("Restoring the delivery puts 1,000 L back", await t9(), 2000);
+check("…and the average cost goes back to 2.00", await t9avg(), 2);
+await asUser(A_OWNER);
+await db.exec(`select restore_record('sale', '${S9}')`);
+await asAdmin();
+check("Restoring the sale takes its 300 L out again", await t9(), 1700);
+await asUser(A_OWNER);
+const netBeforeRestore = await netNow();
+await db.exec(`select restore_record('expense', '${E1}')`);
+check("Restoring the expense lowers net profit by 500 again", netBeforeRestore - (await netNow()), 500);
+await db.exec(`select delete_record('sale', '${S9}', 'Duplicate')`);
+await asAdmin();
+await db.exec(`update tanks set current_litres = 100 where id = '${T9}'`);
+await asUser(A_OWNER);
+await expectError("A sale can't be restored if the tank no longer has the fuel", `select restore_record('sale', '${S9}')`, "Can't restore");
+await asAdmin();
+await db.exec(`update tanks set current_litres = 2000 where id = '${T9}'`);
+checkTrue("Restores are in the audit log",
+  (await count(`select count(*) n from audit_log where record_id = '${P2}' and action = 'RESTORE' and user_id = '${A_OWNER}'`)) === 1);
+const del9 = await one(`select user_id, old_data, new_data from audit_log where record_id = '${S9}' and action = 'SOFT_DELETE' order by created_at desc limit 1`);
+checkTrue("Deletes are in the audit log with the user, the old data and the reason",
+  del9.user_id === A_OWNER && del9.old_data.deleted_at === null && del9.new_data.delete_reason === "Duplicate");
+
+section = "Edit expenses and purchases";
+await asUser(A_MANAGER);
+const EE = (await one(`insert into expenses(category, amount) values ('rent', 100) returning id`)).id;
+await db.exec(`select edit_expense('${EE}', current_date, 'rent', 120, null, 'Corrected')`);
+await asUser(A_OWNER);
+check("Editing an expense changes its amount", (await one(`select amount from expenses where id = '${EE}'`)).amount, 120);
+const ed9 = await one(`select old_data->>'amount' o, new_data->>'amount' n from audit_log where record_id = '${EE}' and action = 'UPDATE' order by created_at desc limit 1`);
+checkTrue("The audit log keeps the old and new amount", Number(ed9.o) === 100 && Number(ed9.n) === 120, JSON.stringify(ed9));
+await asUser(A_MANAGER);
+await expectError("Expenses can't be edited directly any more", `update expenses set amount = 1 where id = '${EE}'`, "permission denied");
+await asUser(A_OWNER);
+// T9 now holds P1 (1,000 L @ 1) + P2 (1,000 L @ 3) = 2,000 L @ 2. Edit P2 to 500 L @ 5.
+await db.exec(`select edit_purchase('${P2}', 500, 5, 0, current_date)`);
+await asAdmin();
+check("Editing a delivery undoes the old litres and adds the new ones", await t9(), 1500);
+check("…and the average cost follows (1,000 × 1 + 500 × 5) / 1,500", await t9avg(), (3500 / 1500).toFixed(6));
+
+section = "Delete: cross-tenant isolation";
+await asUser(B_OWNER);
+await expectError("Org B's owner can't delete org A's records", `select delete_record('expense', '${EO}', 'Duplicate')`, "Record not found");
+await expectError("…or preview them", `select delete_preview('purchase', '${P1}')`, "Record not found");
+await expectError("…or restore them", `select restore_record('sale', '${S9}')`, "Record not found");
+checkTrue("…or see them in Deleted items", (await count(`select count(*) n from deleted_items_safe where org_id = '${ORG_A}'`)) === 0);
+await expectError("Nobody reads the unfiltered deleted list", `select count(*) from deleted_items`, "permission denied");
+await asUser(A_OWNER);
+checkTrue("Org A's owner sees their deleted items", (await count(`select count(*) n from deleted_items_safe`)) >= 3);
+await asUser(A_MANAGER);
+checkTrue("A sales manager sees depot items only, without purchase cost",
+  (await count(`select count(*) n from deleted_items_safe where kind = 'truck_expense'`)) === 0 &&
+  (await count(`select count(*) n from deleted_items_safe where kind = 'purchase' and amount is not null`)) === 0);
+await asUser(A_ATT);
+checkTrue("An attendant sees no deleted items", (await count(`select count(*) n from deleted_items_safe`)) === 0);
 await asAdmin();
 
 section = "Signed out and deactivated";
