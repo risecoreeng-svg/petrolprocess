@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { z } from "zod";
-import { Ban, Receipt } from "lucide-react";
+import { Pencil, Receipt } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
 import { formatDate, nairobiToday } from "@/lib/utils";
@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
+import { Modal } from "@/components/ui/modal";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { DeleteButton, useMayChange } from "@/components/delete-record";
 
 export type ExpenseRow = {
   id: string;
@@ -24,6 +26,8 @@ export type ExpenseRow = {
   original_amount: number;
   truck_id: string | null;
   description: string | null;
+  created_by: string | null;
+  created_at: string;
 };
 
 const schema = z.object({
@@ -40,13 +44,11 @@ const TRUCK_CATEGORIES = new Set(["truck_repairs", "truck_fuel", "maintenance"])
 export function ExpensesClient({
   rows,
   trucks,
-  isOwner,
   filter,
   defaults,
 }: {
   rows: ExpenseRow[];
   trucks: Truck[];
-  isOwner: boolean;
   filter: { from: string; to: string; category: string; truck: string };
   defaults: { monthStart: string; weekStart: string; today: string };
 }) {
@@ -130,7 +132,7 @@ export function ExpensesClient({
                   <TH>Truck</TH>
                   <TH>Description</TH>
                   <TH className="text-right">Amount</TH>
-                  {isOwner ? <TH /> : null}
+                  <TH />
                 </tr>
               </THead>
               <TBody>
@@ -150,11 +152,9 @@ export function ExpensesClient({
                         money(r.amount)
                       )}
                     </TD>
-                    {isOwner ? (
-                      <TD>
-                        <VoidExpense id={r.id} />
-                      </TD>
-                    ) : null}
+                    <TD className="py-2">
+                      <ExpenseActions row={r} trucks={trucks} />
+                    </TD>
                   </TR>
                 ))}
               </TBody>
@@ -256,20 +256,98 @@ function ExpenseForm({ trucks }: { trucks: Truck[] }) {
   );
 }
 
-function VoidExpense({ id }: { id: string }) {
-  const { submit, pending } = useSubmit();
-  async function onVoid() {
-    if (!confirm("Remove this expense? It is kept in the audit log.")) return;
-    await submit(
-      z.object({}),
-      {},
-      () => createClient().from("expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id),
-      "Expense removed",
+function ExpenseActions({ row, trucks }: { row: ExpenseRow; trucks: Truck[] }) {
+  const [editing, setEditing] = useState(false);
+  const canEdit = useMayChange("expense", row.created_by, row.created_at);
+  const what = `the ${labelize(row.category).toLowerCase()} expense of ${formatDate(row.date)}`;
+  return (
+    <div className="flex justify-end gap-0.5">
+      {canEdit ? (
+        <Button variant="ghost" size="sm" onClick={() => setEditing(true)} title="Edit expense" aria-label={`Edit ${what}`}>
+          <Pencil />
+        </Button>
+      ) : null}
+      <DeleteButton kind="expense" id={row.id} createdBy={row.created_by} createdAt={row.created_at} what={what} onEdit={canEdit ? () => setEditing(true) : undefined} />
+      {editing ? <EditExpense row={row} trucks={trucks} onClose={() => setEditing(false)} /> : null}
+    </div>
+  );
+}
+
+const editSchema = z.object({
+  date: z.iso.date("Pick a date"),
+  category: z.enum(EXPENSE_CATEGORIES, { error: "Pick a category" }),
+  amount: z.number({ error: "Enter the amount" }).positive("Must be more than 0"),
+  truck_id: z.string().uuid().nullable(),
+  description: z.string().nullable(),
+});
+
+/** Same currency and rate as when it was entered; the audit log keeps the old values. */
+function EditExpense({ row, trucks, onClose }: { row: ExpenseRow; trucks: Truck[]; onClose: () => void }) {
+  const { submit, pending, errors } = useSubmit();
+  const [date, setDate] = useState(row.date);
+  const [category, setCategory] = useState(row.category);
+  const [amount, setAmount] = useState(String(row.original_amount));
+  const [truckId, setTruckId] = useState(row.truck_id ?? "");
+  const [description, setDescription] = useState(row.description ?? "");
+  async function onSave() {
+    const ok = await submit(
+      editSchema,
+      { date, category, amount: toNum(amount), truck_id: truckId || null, description: description || null },
+      (d) =>
+        createClient().rpc("edit_expense", {
+          p_id: row.id,
+          p_date: d.date,
+          p_category: d.category,
+          p_original_amount: d.amount,
+          p_truck_id: d.truck_id,
+          p_description: d.description,
+        }),
+      "Expense updated",
     );
+    if (ok) onClose();
   }
   return (
-    <Button variant="ghost" size="sm" onClick={onVoid} disabled={pending} title="Remove expense">
-      <Ban />
-    </Button>
+    <Modal open onClose={onClose} title="Edit expense">
+      <div className="grid gap-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Date" htmlFor="x-date" error={errors.date}>
+            <Input id="x-date" type="date" max={nairobiToday()} value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label={`Amount (${row.currency})`} htmlFor="x-amt" error={errors.amount}>
+            <Input id="x-amt" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Category" htmlFor="x-cat" error={errors.category}>
+          <Select id="x-cat" value={category} onChange={(e) => setCategory(e.target.value)}>
+            {EXPENSE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {labelize(c)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Truck (optional)" htmlFor="x-truck">
+          <Select id="x-truck" value={truckId} onChange={(e) => setTruckId(e.target.value)}>
+            <option value="">None</option>
+            {trucks.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.plate_number}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Description" htmlFor="x-desc">
+          <Textarea id="x-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <div className="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={pending}>
+            {pending ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

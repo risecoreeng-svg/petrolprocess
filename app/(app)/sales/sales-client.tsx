@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Banknote, CalendarClock, Check, Clock, CreditCard, Fuel, PackagePlus, Smartphone, X } from "lucide-react";
+import { Banknote, CalendarClock, Check, Clock, CreditCard, Fuel, PackagePlus, Smartphone } from "lucide-react";
 import type { Role } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
@@ -14,9 +14,10 @@ import { useMoney } from "@/components/money-provider";
 import { AddStockForm } from "@/components/add-stock-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
+import { Field, Input, Select } from "@/components/ui/form-controls";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
+import { DeleteButton } from "@/components/delete-record";
 
 export type SaleRow = {
   id: string;
@@ -35,6 +36,7 @@ export type SaleRow = {
   attendant_id: string;
   delivery_date: string;
   delivery_status: "scheduled" | "delivered";
+  created_by: string | null;
 };
 
 const saleSchema = z
@@ -113,7 +115,6 @@ export function SalesClient({
   const [deliveryDate, setDeliveryDate] = useState(nairobiToday());
   const [scheduled, setScheduled] = useState(false);
   const [stockFor, setStockFor] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState<SaleRow | null>(null);
   const [startingShift, setStartingShift] = useState(false);
 
   const fuel = fuelTypes.find((f) => f.id === fuelId);
@@ -501,11 +502,7 @@ export function SalesClient({
                           <Check /> Delivered
                         </Button>
                       ) : null}
-                      {canStock ? (
-                        <Button size="sm" variant="ghost" onClick={() => setCancelling(s)}>
-                          <X /> Cancel
-                        </Button>
-                      ) : null}
+                      <DeleteButton kind="sale" id={s.id} createdBy={s.created_by} createdAt={s.created_at} what={`the sale of ${num(s.litres)} L ${name.fuel(s.fuel_type_id)}`} />
                     </div>
                   </li>
                 ))}
@@ -534,11 +531,7 @@ export function SalesClient({
                     </div>
                     <div className="flex items-center gap-1">
                       {amountCell(s)}
-                      {canStock ? (
-                        <Button variant="ghost" size="icon" onClick={() => setCancelling(s)} title="Cancel sale" aria-label="Cancel sale">
-                          <X />
-                        </Button>
-                      ) : null}
+                      <DeleteButton kind="sale" id={s.id} createdBy={s.created_by} createdAt={s.created_at} what={`the sale of ${num(s.litres)} L ${name.fuel(s.fuel_type_id)}`} />
                     </div>
                   </li>
                 ))}
@@ -560,7 +553,6 @@ export function SalesClient({
           />
         </Modal>
       ) : null}
-      {cancelling ? <CancelSale sale={cancelling} label={`${name.fuel(cancelling.fuel_type_id)} · ${num(cancelling.litres)} L`} onClose={() => setCancelling(null)} /> : null}
     </>
   );
 }
@@ -602,31 +594,3 @@ function MiniStat({ label, value, strong }: { label: string; value: string; stro
   );
 }
 
-/** Cancel = void with a reason. The litres go back into the tank and any credit is reversed. */
-function CancelSale({ sale, label, onClose }: { sale: SaleRow; label: string; onClose: () => void }) {
-  const { submit, pending, errors } = useSubmit();
-  const [reason, setReason] = useState("");
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const ok = await submit(
-      z.object({ reason: z.string().trim().min(3, "Say why it's being cancelled") }),
-      { reason },
-      (d) => createClient().rpc("void_sale", { p_sale: sale.id, p_reason: d.reason }),
-      "Sale cancelled. The fuel is back in the tank.",
-    );
-    if (ok) onClose();
-  }
-  return (
-    <Modal open onClose={onClose} title={`Cancel sale: ${label}`}>
-      <form onSubmit={onSubmit} className="grid gap-4" noValidate>
-        <p className="text-[15px] text-muted">The litres go back into the tank and any credit is reversed. This is recorded in the audit log.</p>
-        <Field label="Reason" htmlFor="vreason" error={errors.reason}>
-          <Textarea id="vreason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Customer changed their mind" />
-        </Field>
-        <Button type="submit" size="lg" variant="destructive" disabled={pending}>
-          Cancel sale
-        </Button>
-      </form>
-    </Modal>
-  );
-}

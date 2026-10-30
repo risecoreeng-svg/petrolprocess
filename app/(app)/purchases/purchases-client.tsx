@@ -1,17 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { z } from "zod";
-import { Ban, PackagePlus } from "lucide-react";
+import { PackagePlus, Pencil } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useSubmit } from "@/lib/use-submit";
+import { toNum, useSubmit } from "@/lib/use-submit";
 import { formatDate, litres, num } from "@/lib/utils";
 import type { FuelType, Supplier, Tank, Truck } from "@/lib/types";
 import { useMoney } from "@/components/money-provider";
 import { AddStockForm } from "@/components/add-stock-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/form-controls";
+import { Field, Input, Select } from "@/components/ui/form-controls";
+import { Modal } from "@/components/ui/modal";
+import { DeleteButton, useMayChange } from "@/components/delete-record";
 import { InfoTip } from "@/components/ui/info-tip";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -29,6 +32,11 @@ export type DeliveryRow = {
   fuel_cost: number;
   trip_cost: number;
   landed_cost_per_litre: number;
+  original_cost_per_litre: number;
+  original_trip_cost: number;
+  trip_id: string | null;
+  created_by: string | null;
+  created_at: string;
 };
 
 export function PurchasesClient({
@@ -37,7 +45,6 @@ export function PurchasesClient({
   suppliers,
   tanks,
   fuelTypes,
-  isOwner,
   filter,
 }: {
   rows: DeliveryRow[];
@@ -45,7 +52,6 @@ export function PurchasesClient({
   suppliers: Supplier[];
   tanks: Tank[];
   fuelTypes: FuelType[];
-  isOwner: boolean;
   filter: { truck: string; supplier: string };
 }) {
   const router = useRouter();
@@ -122,7 +128,7 @@ export function PurchasesClient({
                       <InfoTip>Fuel price plus trip cost, per litre, in {base}.</InfoTip>
                     </span>
                   </TH>
-                  {isOwner ? <TH /> : null}
+                  <TH />
                 </tr>
               </THead>
               <TBody>
@@ -142,11 +148,9 @@ export function PurchasesClient({
                       ) : null}
                     </TD>
                     <TD className="text-right tabular-nums">{money(r.landed_cost_per_litre)}</TD>
-                    {isOwner ? (
-                      <TD>
-                        <VoidButton id={r.id} label={`${num(r.litres)} L on ${formatDate(r.date)}`} />
-                      </TD>
-                    ) : null}
+                    <TD className="py-2">
+                      <RowActions row={r} what={`the delivery of ${num(r.litres)} L on ${formatDate(r.date)}`} />
+                    </TD>
                   </TR>
                 ))}
               </TBody>
@@ -158,20 +162,79 @@ export function PurchasesClient({
   );
 }
 
-function VoidButton({ id, label }: { id: string; label: string }) {
-  const { submit, pending } = useSubmit();
-  async function onVoid() {
-    if (!confirm(`Remove the delivery of ${label}? Its litres come out of the tank. This is logged.`)) return;
-    await submit(
-      z.object({}),
-      {},
-      () => createClient().from("purchases").update({ deleted_at: new Date().toISOString() }).eq("id", id),
-      "Delivery removed",
+/** Edit and Delete for one delivery (owner, or whoever entered it within the time window). */
+function RowActions({ row, what }: { row: DeliveryRow; what: string }) {
+  const [editing, setEditing] = useState(false);
+  const canEdit = useMayChange("purchase", row.created_by, row.created_at) && !row.trip_id;
+  return (
+    <div className="flex justify-end gap-0.5">
+      {canEdit ? (
+        <Button variant="ghost" size="sm" onClick={() => setEditing(true)} title="Edit delivery" aria-label={`Edit ${what}`}>
+          <Pencil />
+        </Button>
+      ) : null}
+      <DeleteButton kind="purchase" id={row.id} createdBy={row.created_by} createdAt={row.created_at} what={what} onEdit={canEdit ? () => setEditing(true) : undefined} />
+      {editing ? <EditDelivery row={row} onClose={() => setEditing(false)} /> : null}
+    </div>
+  );
+}
+
+const editSchema = z.object({
+  litres: z.number({ error: "Enter the litres" }).positive("Must be more than 0"),
+  cost: z.number({ error: "Enter the cost per litre" }).positive("Must be more than 0"),
+  trip: z.number().min(0, "Can't be negative"),
+  date: z.string().min(10, "Pick a date"),
+});
+
+/** Changing a delivery takes the old litres and cost out of the tank and puts the new ones in. */
+function EditDelivery({ row, onClose }: { row: DeliveryRow; onClose: () => void }) {
+  const { submit, pending, errors } = useSubmit();
+  const [v, setV] = useState({
+    litres: String(row.litres),
+    cost: String(row.original_cost_per_litre),
+    trip: String(row.original_trip_cost ?? 0),
+    date: row.date,
+  });
+  const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => setV({ ...v, [k]: e.target.value });
+  async function onSave() {
+    const ok = await submit(
+      editSchema,
+      { litres: toNum(v.litres), cost: toNum(v.cost), trip: toNum(v.trip) ?? 0, date: v.date },
+      (d) => createClient().rpc("edit_purchase", { p_id: row.id, p_litres: d.litres, p_cost_per_litre: d.cost, p_trip_cost: d.trip, p_date: d.date }),
+      "Delivery updated",
     );
+    if (ok) onClose();
   }
   return (
-    <Button variant="ghost" size="sm" onClick={onVoid} disabled={pending} title="Remove delivery" aria-label="Remove delivery">
-      <Ban />
-    </Button>
+    <Modal open onClose={onClose} title="Edit delivery">
+      <div className="space-y-4">
+        <p className="text-[14px] text-muted">
+          Amounts are in {row.currency}, at the rate used when the delivery was recorded. The tank&apos;s stock and average cost are
+          recalculated.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Litres" htmlFor="e-litres" error={errors.litres}>
+            <Input id="e-litres" inputMode="decimal" value={v.litres} onChange={set("litres")} />
+          </Field>
+          <Field label={`Cost per litre (${row.currency})`} htmlFor="e-cost" error={errors.cost}>
+            <Input id="e-cost" inputMode="decimal" value={v.cost} onChange={set("cost")} />
+          </Field>
+          <Field label={`Transport (${row.currency})`} htmlFor="e-trip" error={errors.trip}>
+            <Input id="e-trip" inputMode="decimal" value={v.trip} onChange={set("trip")} />
+          </Field>
+          <Field label="Date" htmlFor="e-date" error={errors.date}>
+            <Input id="e-date" type="date" value={v.date} onChange={set("date")} />
+          </Field>
+        </div>
+        <div className="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={pending}>
+            {pending ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

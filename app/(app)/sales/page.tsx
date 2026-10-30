@@ -6,7 +6,7 @@ import type { Customer, FuelType, Supplier, Tank, Truck } from "@/lib/types";
 import { SalesClient, type SaleRow } from "./sales-client";
 
 const SALE_COLUMNS =
-  "id, date, created_at, tank_id, fuel_type_id, litres, total, currency, original_total, original_price_per_litre, payment_type, customer_id, payment_ref, attendant_id, delivery_date, delivery_status";
+  "id, date, created_at, tank_id, fuel_type_id, litres, total, currency, original_total, original_price_per_litre, payment_type, customer_id, payment_ref, attendant_id, delivery_date, delivery_status, created_by";
 
 export default async function SalesPage() {
   const profile = await getProfile();

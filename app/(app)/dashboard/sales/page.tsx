@@ -124,7 +124,7 @@ export default async function SalesDrillPage({ searchParams }: { searchParams: P
         description={
           showTrips && sp.view !== "trucks"
             ? `${periodLabel(from, to)} · fuel sales ${money(fuelTotal)} plus truck trips ${money(tripTotal)}`
-            : `${periodLabel(from, to)} · voided sales are listed but not counted`
+            : `${periodLabel(from, to)} · deleted sales are listed but not counted`
         }
       />
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -139,7 +139,7 @@ export default async function SalesDrillPage({ searchParams }: { searchParams: P
       ) : (
         <>
           <div className="mb-5 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-            <Stat label="Sales" value={String(active.length)} sub={rows.length > active.length ? `${rows.length - active.length} voided` : "none voided"} />
+            <Stat label="Sales" value={String(active.length)} sub={rows.length > active.length ? `${rows.length - active.length} deleted` : "none deleted"} />
             <Stat label="Litres sold" value={litres(litresSold)} />
             <Stat label="Average price per litre" value={litresSold ? money(fuelTotal / litresSold) : "—"} />
             <Stat

@@ -104,6 +104,8 @@ export type FleetDriver = {
 
 export type Trip = {
   id: string;
+  created_by?: string | null;
+  created_at?: string;
   trip_no: number;
   date: string;
   truck_id: string;
@@ -139,7 +141,7 @@ export type Trip = {
 };
 
 export const TRIP_COLUMNS =
-  "id, trip_no, date, truck_id, driver_id, customer_id, for_own_depot, route_from, route_to, cargo_type, currency, fx_rate, fee_original, fee, status, started_at, delivered_at, cancel_reason, start_odometer, end_odometer, notes, start_override_reason, fuel_type_id, litres_loaded, loaded_from, loading_ticket, supplier_id, litres_delivered, shortage_litres, shortage_pct, haulage_status, dispute_note, tank_id";
+  "id, trip_no, date, truck_id, driver_id, customer_id, for_own_depot, route_from, route_to, cargo_type, currency, fx_rate, fee_original, fee, status, started_at, delivered_at, cancel_reason, start_odometer, end_odometer, notes, start_override_reason, fuel_type_id, litres_loaded, loaded_from, loading_ticket, supplier_id, litres_delivered, shortage_litres, shortage_pct, haulage_status, dispute_note, tank_id, created_by, created_at";
 
 /** How a document or licence expiry stands today. */
 export function expiryState(date: string | null | undefined): "expired" | "soon" | "ok" | "none" {

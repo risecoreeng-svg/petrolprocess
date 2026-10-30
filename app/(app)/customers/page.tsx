@@ -5,7 +5,7 @@ import { CustomersClient, type BalanceRow, type PaymentRow } from "./customers-c
 
 export default async function CustomersPage({ searchParams }: { searchParams: Promise<{ cur?: string }> }) {
   const disp = displayCurrency(await getMoneyContext(), (await searchParams).cur);
-  const profile = await requireRole("owner", "manager");
+  await requireRole("owner", "manager");
   const supabase = await createClient();
 
   const [{ data: balances }, { data: payments }, { data: staff }] = await Promise.all([
@@ -25,7 +25,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
       balances={(balances ?? []) as BalanceRow[]}
       payments={(payments ?? []) as PaymentRow[]}
       staff={staff ?? []}
-      isOwner={profile.role === "owner"}
     />
   );
 }

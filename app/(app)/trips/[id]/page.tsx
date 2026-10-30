@@ -19,7 +19,7 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
     // RLS hides driver pay lines from everyone but the owner.
     supabase
       .from("trip_lines")
-      .select("id, kind, category, description, currency, original_amount, amount, litres, driver_id, paid_from_advance, receipt_path, created_at")
+      .select("id, kind, category, description, currency, original_amount, amount, litres, driver_id, paid_from_advance, receipt_path, created_at, created_by")
       .eq("trip_id", id)
       .is("deleted_at", null)
       .order("created_at"),

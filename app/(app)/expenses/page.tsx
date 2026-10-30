@@ -10,7 +10,7 @@ export default async function ExpensesPage({
   searchParams: Promise<{ from?: string; to?: string; category?: string; truck?: string }>;
 }) {
   const sp = await searchParams;
-  const profile = await requireRole("owner", "manager");
+  await requireRole("owner", "manager");
   const supabase = await createClient();
   const today = nairobiToday();
   const from = sp.from ?? startOfMonth(today);
@@ -18,7 +18,7 @@ export default async function ExpensesPage({
 
   let q = supabase
     .from("expenses")
-    .select("id, date, category, amount, currency, original_amount, truck_id, description, created_by")
+    .select("id, date, category, amount, currency, original_amount, truck_id, description, created_by, created_at")
     .is("deleted_at", null)
     .gte("date", from)
     .lte("date", to);
@@ -34,7 +34,6 @@ export default async function ExpensesPage({
     <ExpensesClient
       rows={(rows ?? []) as ExpenseRow[]}
       trucks={(trucks ?? []) as Truck[]}
-      isOwner={profile.role === "owner"}
       filter={{ from, to, category: sp.category ?? "", truck: sp.truck ?? "" }}
       defaults={{ monthStart: startOfMonth(today), weekStart: addDays(today, -6), today }}
     />

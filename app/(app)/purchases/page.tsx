@@ -10,13 +10,13 @@ export default async function PurchasesPage({
 }) {
   const { truck, supplier } = await searchParams;
   // Owner and sales manager both see what stock cost; RLS enforces it.
-  const profile = await requireRole("owner", "manager");
+  await requireRole("owner", "manager");
   const supabase = await createClient();
 
   let history = supabase
     .from("purchases")
     .select(
-      "id, date, supplier_id, truck_id, tank_id, fuel_type_id, litres, currency, original_total, fuel_cost, trip_cost, landed_cost_per_litre",
+      "id, date, supplier_id, truck_id, tank_id, fuel_type_id, litres, currency, original_total, original_cost_per_litre, original_trip_cost, fuel_cost, trip_cost, landed_cost_per_litre, trip_id, created_by, created_at",
     )
     .is("deleted_at", null);
   if (truck) history = history.eq("truck_id", truck);
@@ -37,7 +37,6 @@ export default async function PurchasesPage({
       suppliers={(suppliers ?? []) as Supplier[]}
       tanks={(tanks ?? []) as Tank[]}
       fuelTypes={(fuelTypes ?? []) as FuelType[]}
-      isOwner={profile.role === "owner"}
       filter={{ truck: truck ?? "", supplier: supplier ?? "" }}
     />
   );

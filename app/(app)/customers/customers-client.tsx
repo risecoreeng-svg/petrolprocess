@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import { CurrencySwitcher } from "@/components/currency-switcher";
 import { z } from "zod";
-import { Ban, HandCoins, Pencil, Plus, TriangleAlert } from "lucide-react";
+import { HandCoins, Pencil, Plus, TriangleAlert } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
 import { cn, formatDate, nairobiToday } from "@/lib/utils";
@@ -13,6 +13,7 @@ import { Field, Input, Select } from "@/components/ui/form-controls";
 import { Badge, EmptyState, PageHeader, Stat } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { DeleteButton } from "@/components/delete-record";
 import { InfoTip } from "@/components/ui/info-tip";
 
 export type BalanceRow = {
@@ -36,6 +37,7 @@ export type PaymentRow = {
   method: "cash" | "mobile";
   date: string;
   received_by: string | null;
+  created_at: string;
 };
 
 const customerSchema = z.object({
@@ -57,14 +59,12 @@ export function CustomersClient({
   balances,
   payments,
   staff,
-  isOwner,
   display,
 }: {
   display: { code: string; rate: number };
   balances: BalanceRow[];
   payments: PaymentRow[];
   staff: { id: string; full_name: string }[];
-  isOwner: boolean;
 }) {
   const { fmt, base } = useMoney();
   // Balances are kept in base currency; shown in the chosen currency at today's rate.
@@ -178,7 +178,7 @@ export function CustomersClient({
               <TH>Method</TH>
               <TH>Received by</TH>
               <TH className="text-right">Amount</TH>
-              {isOwner ? <TH /> : null}
+              <TH />
             </tr>
           </THead>
           <TBody>
@@ -189,11 +189,15 @@ export function CustomersClient({
                 <TD>{p.method === "mobile" ? "Mobile money" : "Cash"}</TD>
                 <TD>{staffName(p.received_by)}</TD>
                 <TD className="text-right tabular-nums">{p.currency !== base ? fmt(p.original_amount, p.currency) : money(p.amount)}</TD>
-                {isOwner ? (
-                  <TD>
-                    <VoidPayment id={p.id} />
-                  </TD>
-                ) : null}
+                <TD className="py-2">
+                  <DeleteButton
+                    kind="credit_payment"
+                    id={p.id}
+                    createdBy={p.received_by}
+                    createdAt={p.created_at}
+                    what={`the payment from ${customerName(p.customer_id)} on ${formatDate(p.date)}`}
+                  />
+                </TD>
               </TR>
             ))}
           </TBody>
@@ -333,23 +337,5 @@ function PaymentForm({ customer, customers, onClose }: { customer: BalanceRow; c
         </Button>
       </form>
     </Modal>
-  );
-}
-
-function VoidPayment({ id }: { id: string }) {
-  const { submit, pending } = useSubmit();
-  async function onVoid() {
-    if (!confirm("Void this payment? The customer's balance goes back up. This is logged.")) return;
-    await submit(
-      z.object({}),
-      {},
-      () => createClient().from("credit_payments").update({ deleted_at: new Date().toISOString() }).eq("id", id),
-      "Payment voided",
-    );
-  }
-  return (
-    <Button variant="ghost" size="sm" onClick={onVoid} disabled={pending} title="Void payment">
-      <Ban />
-    </Button>
   );
 }

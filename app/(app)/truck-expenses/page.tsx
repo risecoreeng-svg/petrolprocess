@@ -23,7 +23,7 @@ export default async function TruckExpensesPage({
 
   let q = supabase
     .from("truck_expenses")
-    .select("id, truck_id, date, category, description, litres, odometer_km, workshop, driver_id, currency, original_amount, amount, receipt_path, recurring_id")
+    .select("id, truck_id, date, category, description, litres, odometer_km, workshop, driver_id, currency, original_amount, amount, receipt_path, recurring_id, created_by, created_at")
     .is("deleted_at", null)
     .gte("date", from)
     .lte("date", to);

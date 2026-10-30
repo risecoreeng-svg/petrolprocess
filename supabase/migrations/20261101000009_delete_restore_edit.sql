@@ -526,3 +526,24 @@ grant execute on function public.delete_preview(text, uuid), public.delete_recor
   public.edit_purchase(uuid, numeric, numeric, numeric, date) to authenticated;
 -- The deleted items view formats its titles with these.
 grant execute on function public.fmt_money(numeric), public.fmt_litres(numeric), public.reason_text(text, text) to authenticated;
+
+-- ===== Sales views show who entered a sale (for the Delete button) =====
+create or replace view public.sales_safe as
+  select id, org_id, date, created_at, tank_id, fuel_type_id, litres, price_per_litre, total,
+         payment_type, customer_id, payment_ref, attendant_id, shift_id,
+         currency, fx_rate, original_price_per_litre, original_total,
+         delivery_date, delivery_status, delivered_at, created_by
+  from public.sales
+  where deleted_at is null
+    and org_id = public.current_org_id()
+    and (public.is_manager_up()
+         or (public.app_role() = 'attendant' and attendant_id = auth.uid()));
+
+create or replace view public.sales_ledger as
+  select id, org_id, date, created_at, tank_id, fuel_type_id, litres, price_per_litre, total,
+         payment_type, customer_id, payment_ref, attendant_id, shift_id,
+         currency, fx_rate, original_price_per_litre, original_total,
+         delivery_date, delivery_status, delivered_at, deleted_at, void_reason,
+         created_by, deleted_by, delete_reason, delete_note
+  from public.sales
+  where org_id = public.current_org_id() and public.is_manager_up();

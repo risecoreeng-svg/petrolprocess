@@ -4,7 +4,7 @@ import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Pause, Play, Repeat, Wrench, X } from "lucide-react";
+import { Pause, Play, Repeat, Wrench } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
 import { errorMessage, formatDate, litres, nairobiToday, num } from "@/lib/utils";
@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/form-controls";
 import { Badge, EmptyState } from "@/components/ui/misc";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { DeleteButton } from "@/components/delete-record";
 
 export type TruckExpense = {
   id: string;
@@ -32,6 +33,8 @@ export type TruckExpense = {
   amount: number;
   receipt_path: string | null;
   recurring_id: string | null;
+  created_by: string | null;
+  created_at: string;
 };
 export type Recurring = {
   id: string;
@@ -96,14 +99,6 @@ export function TruckExpensesClient({
       else next.delete(k);
     }
     router.push(`${pathname}?${next}`);
-  }
-
-  async function remove(id: string) {
-    if (!confirm("Remove this cost? It stays in the audit log.")) return;
-    const { error } = await createClient().from("truck_expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id);
-    if (error) return toast.error(errorMessage(error));
-    toast.success("Removed");
-    router.refresh();
   }
 
   return (
@@ -189,10 +184,14 @@ export function TruckExpensesClient({
                     {fmt(r.original_amount, r.currency)}
                     {r.currency !== base ? <span className="block text-[13px] text-muted">{money(r.amount)}</span> : null}
                   </TD>
-                  <TD>
-                    <button onClick={() => remove(r.id)} className="p-1 text-muted hover:text-orange" aria-label="Remove">
-                      <X className="size-4" />
-                    </button>
+                  <TD className="py-2">
+                    <DeleteButton
+                      kind="truck_expense"
+                      id={r.id}
+                      createdBy={r.created_by}
+                      createdAt={r.created_at}
+                      what={`the ${(TRUCK_EXPENSE_CATEGORIES[r.category] ?? r.category).toLowerCase()} cost for ${plate(r.truck_id)}`}
+                    />
                   </TD>
                 </TR>
               ))}

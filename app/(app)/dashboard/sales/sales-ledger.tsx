@@ -136,8 +136,8 @@ export function SalesLedger({
           attendant: r.attendant,
           shift: r.shift,
           delivery: deliveryText(r),
-          status: r.voided ? "Voided" : "Active",
-          void_reason: r.void_reason ?? "",
+          status: r.voided ? "Deleted" : "Active",
+          delete_reason: r.void_reason ?? "",
         })),
       ),
     );
@@ -191,9 +191,9 @@ export function SalesLedger({
           ))}
         </Select>
         <Select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
-          <option value="">Active and voided</option>
+          <option value="">Active and deleted</option>
           <option value="active">Active only</option>
-          <option value="voided">Voided only</option>
+          <option value="voided">Deleted only</option>
         </Select>
       </div>
 
@@ -258,7 +258,7 @@ export function SalesLedger({
                 <TD>{r.attendant}</TD>
                 <TD className="text-[14px] text-muted">{r.shift || "—"}</TD>
                 <TD className="text-[14px]">{deliveryText(r)}</TD>
-                <TD>{r.voided ? <Badge variant="destructive">Voided</Badge> : <Badge variant="secondary">Active</Badge>}</TD>
+                <TD>{r.voided ? <Badge variant="destructive">Deleted</Badge> : <Badge variant="secondary">Active</Badge>}</TD>
               </TR>
             ))}
           </TBody>

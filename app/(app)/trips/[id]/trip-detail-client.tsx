@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { toast } from "sonner";
-import { ArrowLeft, Ban, Check, Flag, Pencil, Play, Printer, X } from "lucide-react";
+import { ArrowLeft, Check, Flag, Pencil, Play, Printer, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
 import { cn, errorMessage, formatDate, formatDateTime, litres, num } from "@/lib/utils";
@@ -30,6 +30,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
 import { InfoTip } from "@/components/ui/info-tip";
 import { Badge, PageHeader } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
+import { DeleteButton } from "@/components/delete-record";
 
 export type Line = {
   id: string;
@@ -44,6 +45,7 @@ export type Line = {
   paid_from_advance: boolean;
   receipt_path: string | null;
   created_at: string;
+  created_by: string | null;
 };
 export type Advance = { id: string; kind: "given" | "returned"; date: string; currency: string; original_amount: number; amount: number };
 export type TripPayment = { id: string; date: string; method: string; reference: string | null; currency: string; original_amount: number; amount: number };
@@ -82,7 +84,7 @@ export function TripDetailClient({
 }) {
   const router = useRouter();
   const { money, fmt, base } = useMoney();
-  const [modal, setModal] = useState<null | "edit" | "start" | "deliver" | "cancel" | "void" | "dispute">(null);
+  const [modal, setModal] = useState<null | "edit" | "start" | "deliver" | "cancel" | "dispute">(null);
   const truck = trucks.find((t) => t.id === trip.truck_id);
   const driver = drivers.find((d) => d.id === trip.driver_id);
   const client = customers.find((c) => c.id === trip.customer_id);
@@ -156,9 +158,15 @@ export function TripDetailClient({
             <X /> Cancel trip
           </Button>
         ) : null}
-        <Button variant="ghost" className="text-orange" onClick={() => setModal("void")}>
-          <Ban /> Void
-        </Button>
+        <DeleteButton
+          kind="trip"
+          id={trip.id}
+          createdBy={trip.created_by}
+          createdAt={trip.created_at}
+          what={`trip #${trip.trip_no}`}
+          onDeleted={() => router.push("/trips")}
+          full
+        />
       </div>
 
       {trip.start_override_reason ? (
@@ -319,23 +327,13 @@ export function TripDetailClient({
         <StartModal truck={truck} onClose={() => setModal(null)} onStart={(odo, reason) => rpc("start_trip", { p_trip: trip.id, p_start_odometer: odo, p_override_reason: reason }, "Trip started")} />
       ) : null}
       {modal === "deliver" ? <DeliverModal trip={trip} tanks={tanks} onClose={() => setModal(null)} rpc={rpc} /> : null}
-      {modal === "cancel" || modal === "void" ? (
+      {modal === "cancel" ? (
         <ReasonModal
-          title={modal === "cancel" ? "Cancel this trip" : "Void this trip"}
-          help={
-            modal === "cancel"
-              ? "For a trip that didn't happen. Expenses already spent stay on it."
-              : trip.for_own_depot && trip.status === "delivered"
-                ? "For a trip entered by mistake. Its fuel is taken back out of the tank. Nothing is deleted; the void is logged."
-                : "For a trip entered by mistake. Nothing is deleted; the void is logged."
-          }
-          action={modal === "cancel" ? "Cancel trip" : "Void trip"}
+          title="Cancel this trip"
+          help="For a trip that didn't happen. Expenses already spent stay on it."
+          action="Cancel trip"
           onClose={() => setModal(null)}
-          onSubmit={async (reason) => {
-            const ok = await rpc(modal === "cancel" ? "cancel_trip" : "void_trip", { p_trip: trip.id, p_reason: reason }, modal === "cancel" ? "Trip cancelled" : "Trip voided");
-            if (ok && modal === "void") router.push("/trips");
-            return ok;
-          }}
+          onSubmit={(reason) => rpc("cancel_trip", { p_trip: trip.id, p_reason: reason }, "Trip cancelled")}
         />
       ) : null}
       {modal === "dispute" ? <DisputeModal trip={trip} onClose={() => setModal(null)} rpc={rpc} /> : null}
@@ -370,14 +368,6 @@ function ProfitLine({ label, base, inTrip, showTrip }: { label: React.ReactNode;
 
 function LinesList({ title, lines, empty, drivers }: { title: string; lines: Line[]; empty: string; drivers: FleetDriver[] }) {
   const { money, fmt, base } = useMoney();
-  const router = useRouter();
-  async function remove(id: string) {
-    if (!confirm("Remove this line? It stays in the audit log.")) return;
-    const { error } = await createClient().from("trip_lines").update({ deleted_at: new Date().toISOString() }).eq("id", id);
-    if (error) return toast.error(errorMessage(error));
-    toast.success("Line removed");
-    router.refresh();
-  }
   return (
     <div>
       <p className="mb-2 text-sm font-medium">{title}</p>
@@ -406,9 +396,13 @@ function LinesList({ title, lines, empty, drivers }: { title: string; lines: Lin
                 <p className="font-semibold">{fmt(l.original_amount, l.currency)}</p>
                 {l.currency !== base ? <p className="text-[13px] text-muted">{money(l.amount)}</p> : null}
               </div>
-              <button onClick={() => remove(l.id)} className="p-1 text-muted hover:text-orange" aria-label="Remove line">
-                <X className="size-4" />
-              </button>
+              <DeleteButton
+                kind="trip_line"
+                id={l.id}
+                createdBy={l.created_by}
+                createdAt={l.created_at}
+                what={`this ${(CAT_LABEL[l.category] ?? l.category).toLowerCase()} line`}
+              />
             </li>
           ))}
         </ul>

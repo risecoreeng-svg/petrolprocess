@@ -7,6 +7,7 @@ import { PAYMENT_LABEL, type PaymentType } from "@/lib/types";
 import { formatDate, formatDateTime, num } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, PageHeader } from "@/components/ui/misc";
+import { DeleteButton } from "@/components/delete-record";
 import { BackToDashboard, NeedsUpdate, type DrillParams } from "../../shared";
 
 type Change = { action: string; changed_at: string; changed_by: string; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null };
@@ -28,14 +29,16 @@ const FIELD_LABEL: Record<string, string> = {
   delivery_status: "Delivery",
   delivery_date: "Delivery date",
   delivered_at: "Delivered at",
-  deleted_at: "Voided at",
-  void_reason: "Void reason",
+  deleted_at: "Deleted at",
+  void_reason: "Reason",
+  delete_reason: "Reason",
+  delete_note: "Note",
   cost_per_litre: "Cost per litre",
   cost_total: "Cost",
   date: "Date",
 };
 
-const ACTION_LABEL: Record<string, string> = { INSERT: "Recorded", UPDATE: "Edited", SOFT_DELETE: "Voided", DELETE: "Deleted" };
+const ACTION_LABEL: Record<string, string> = { INSERT: "Recorded", UPDATE: "Edited", SOFT_DELETE: "Deleted", RESTORE: "Restored" };
 
 export default async function SaleDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<DrillParams> }) {
   const profile = await requireRole("owner", "manager");
@@ -109,10 +112,15 @@ export default async function SaleDetailPage({ params, searchParams }: { params:
         title={
           <span className="flex flex-wrap items-center gap-3">
             Sale of {num(sale.litres)} L
-            {voided ? <Badge variant="destructive">Voided</Badge> : <Badge variant="secondary">Active</Badge>}
+            {voided ? <Badge variant="destructive">Deleted</Badge> : <Badge variant="secondary">Active</Badge>}
           </span>
         }
-        description={`${formatMoney(total, base)} · ${formatDate(sale.date)}${voided && sale.void_reason ? ` · voided: ${sale.void_reason}` : ""}`}
+        actions={
+          voided ? null : (
+            <DeleteButton kind="sale" id={sale.id} createdBy={sale.created_by} createdAt={sale.created_at} what={`the sale of ${num(sale.litres)} L`} full />
+          )
+        }
+        description={`${formatMoney(total, base)} · ${formatDate(sale.date)}${voided && sale.void_reason ? ` · deleted: ${sale.void_reason}` : ""}`}
       />
       <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
         <Card>
@@ -145,7 +153,7 @@ export default async function SaleDetailPage({ params, searchParams }: { params:
                 </dl>
                 <p className="mt-3 text-[13px] text-muted">
                   Cost is the tank&apos;s average cost per litre (price plus transport) at the moment of the sale.
-                  {voided ? " This sale is voided, so it isn't counted in profit." : ""}
+                  {voided ? " This sale is deleted, so it isn't counted in profit." : ""}
                 </p>
               </CardContent>
             </Card>
