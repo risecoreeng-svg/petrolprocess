@@ -36,6 +36,7 @@ export const NAV: NavItem[] = [
   // Business
   { href: "/reports", label: "Reports", icon: "ChartColumn", roles: ["owner", "manager", "fleet_manager"], group: "Business" },
   { href: "/users", label: "Users", icon: "UserCog", roles: ["owner"], group: "Business" },
+  { href: "/deleted", label: "Deleted items", icon: "Trash2", roles: OWNER_MGR, group: "Business" },
   { href: "/audit", label: "Audit log", icon: "ScrollText", roles: ["owner"], group: "Business" },
   { href: "/settings", label: "Settings", icon: "Settings", roles: ["owner"], group: "Business" },
 ];

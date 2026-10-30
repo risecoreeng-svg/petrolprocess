@@ -27,6 +27,7 @@ export function SettingsClient({
   history,
   baseLocked,
   tolerance,
+  deleteWindow,
 }: {
   base: string;
   enabled: string[];
@@ -35,6 +36,7 @@ export function SettingsClient({
   history: RateRow[];
   baseLocked: boolean;
   tolerance: number;
+  deleteWindow: number;
 }) {
   const router = useRouter();
   const [baseCode, setBaseCode] = useState(base);
@@ -140,6 +142,22 @@ export function SettingsClient({
         </CardContent>
       </Card>
 
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Deleting mistakes
+            <InfoTip>
+              Sales managers and fleet managers can delete or edit only what they entered themselves, and only for this many hours. You can
+              always delete, edit and restore anything.
+            </InfoTip>
+          </CardTitle>
+          <CardDescription>How long staff can fix their own entries.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DeleteWindowForm current={deleteWindow} />
+        </CardContent>
+      </Card>
+
       <div className="lg:col-span-2">
         <h2 className="card-title mb-3">Rate history</h2>
         <Table>
@@ -231,6 +249,30 @@ function ToleranceForm({ current }: { current: number }) {
     <form onSubmit={onSubmit} className="flex items-end gap-2" noValidate>
       <Field label="Allowed shortage (%)" htmlFor="tol" error={errors.pct} className="flex-1">
         <Input id="tol" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className="min-w-0" />
+      </Field>
+      <Button type="submit" disabled={pending} className="h-12">
+        Save
+      </Button>
+    </form>
+  );
+}
+
+function DeleteWindowForm({ current }: { current: number }) {
+  const { submit, pending, errors } = useSubmit();
+  const [value, setValue] = useState(String(current));
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await submit(
+      z.object({ hours: z.number({ error: "Enter the hours" }).int("Whole hours").min(0, "0 or more").max(168, "At most 168 (a week)") }),
+      { hours: toNum(value) },
+      (d) => createClient().from("organizations").update({ delete_window_hours: d.hours }).not("id", "is", null),
+      "Saved",
+    );
+  }
+  return (
+    <form onSubmit={onSubmit} className="flex items-end gap-2" noValidate>
+      <Field label="Hours after entering" htmlFor="delwin" error={errors.hours} hint="0 means only you can delete." className="flex-1">
+        <Input id="delwin" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} className="min-w-0" />
       </Field>
       <Button type="submit" disabled={pending} className="h-12">
         Save

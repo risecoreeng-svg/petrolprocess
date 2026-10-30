@@ -7,7 +7,7 @@ import { SettingsClient, type RateRow } from "./settings-client";
 export default async function SettingsPage() {
   const me = await requireRole("owner");
   const supabase = await createClient();
-  const [money, { data: currencies }, { data: history }, moneyRecorded, { data: org }] = await Promise.all([
+  const [money, { data: currencies }, { data: history }, moneyRecorded, { data: org }, { data: window }] = await Promise.all([
     getMoneyContext(),
     supabase.from("currencies").select("code, name, decimals").order("code"),
     supabase
@@ -19,6 +19,7 @@ export default async function SettingsPage() {
       .limit(60),
     supabase.from("sales_safe").select("id", { count: "exact", head: true }),
     supabase.from("organizations").select("haulage_tolerance_pct").single(),
+    supabase.from("organizations").select("delete_window_hours").maybeSingle(),
   ]);
 
   return (
@@ -32,6 +33,7 @@ export default async function SettingsPage() {
         history={(history ?? []) as RateRow[]}
         baseLocked={(moneyRecorded.count ?? 0) > 0}
         tolerance={Number(org?.haulage_tolerance_pct ?? 0.5)}
+        deleteWindow={Number(window?.delete_window_hours ?? 24)}
       />
     </>
   );
