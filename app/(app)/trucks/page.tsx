@@ -1,40 +1,44 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import type { Driver, Truck } from "@/lib/types";
+import type { FleetDriver, FleetTruck } from "@/lib/fleet";
 import { TrucksClient, type TruckPerf } from "./trucks-client";
 
 export default async function TrucksPage() {
-  const profile = await requireRole("owner", "manager");
+  const profile = await requireRole("owner", "manager", "fleet_manager");
+  const isOwner = profile.role === "owner";
+  const canTrips = profile.role === "owner" || profile.role === "fleet_manager";
   const supabase = await createClient();
 
-  const [{ data: trucks }, { data: drivers }, perf] = await Promise.all([
+  const [{ data: trucks }, { data: drivers }, tripsRes, profitRes, costsRes] = await Promise.all([
     supabase.from("trucks").select("*").is("deleted_at", null).order("plate_number"),
-    supabase.from("drivers").select("*").is("deleted_at", null).order("name"),
-    profile.role === "owner"
-      ? supabase.from("truck_performance").select("truck_id, deliveries, litres_brought, profit")
-      : supabase.from("purchases_safe").select("truck_id, litres"),
+    supabase.from("drivers").select("id, name, phone, licence_no, licence_expiry, profile_id").is("deleted_at", null).order("name"),
+    canTrips
+      ? supabase.from("trips").select("truck_id, status, litres_delivered").is("deleted_at", null)
+      : Promise.resolve({ data: [] as { truck_id: string; status: string; litres_delivered: number | null }[] }),
+    // Profit is owner-only (RLS returns nothing to anyone else anyway).
+    isOwner ? supabase.from("trip_profit").select("truck_id, profit") : Promise.resolve({ data: null }),
+    isOwner ? supabase.from("truck_expenses").select("truck_id, amount").is("deleted_at", null) : Promise.resolve({ data: null }),
   ]);
 
-  // Managers get delivery counts and litres only; owners also get profit.
-  const perfByTruck: Record<string, TruckPerf> = {};
-  if (profile.role === "owner") {
-    for (const p of (perf.data ?? []) as { truck_id: string; deliveries: number; litres_brought: number; profit: number }[]) {
-      perfByTruck[p.truck_id] = { deliveries: Number(p.deliveries), litres: Number(p.litres_brought), profit: Number(p.profit) };
-    }
-  } else {
-    for (const p of (perf.data ?? []) as { truck_id: string; litres: number }[]) {
-      const cur = (perfByTruck[p.truck_id] ??= { deliveries: 0, litres: 0, profit: null });
-      cur.deliveries += 1;
-      cur.litres += Number(p.litres);
-    }
+  const perf: Record<string, TruckPerf> = {};
+  for (const t of trucks ?? []) perf[t.id] = { trips: 0, litres: 0, profit: isOwner ? 0 : null };
+  for (const t of tripsRes.data ?? []) {
+    if (!perf[t.truck_id] || t.status !== "delivered") continue;
+    perf[t.truck_id].trips += 1;
+    perf[t.truck_id].litres += Number(t.litres_delivered ?? 0);
+  }
+  if (isOwner) {
+    for (const p of profitRes.data ?? []) if (perf[p.truck_id]) perf[p.truck_id].profit! += Number(p.profit);
+    for (const x of costsRes.data ?? []) if (perf[x.truck_id]) perf[x.truck_id].profit! -= Number(x.amount);
   }
 
   return (
     <TrucksClient
-      trucks={(trucks ?? []) as Truck[]}
-      drivers={(drivers ?? []) as Driver[]}
-      perf={perfByTruck}
-      isOwner={profile.role === "owner"}
+      trucks={(trucks ?? []) as FleetTruck[]}
+      drivers={(drivers ?? []) as FleetDriver[]}
+      perf={perf}
+      isOwner={isOwner}
+      canTrips={canTrips}
     />
   );
 }

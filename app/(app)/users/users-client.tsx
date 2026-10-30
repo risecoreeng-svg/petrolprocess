@@ -19,7 +19,9 @@ export type UserRow = { id: string; full_name: string; email: string; role: Role
 const ROLE_HELP: Record<Role, string> = {
   owner: "Everything, including profit, cost and users",
   manager: "Sales manager: stock, sales, customers and what stock cost, but never profit or margins",
+  fleet_manager: "Fleet manager: trips, fuel movements, truck costs and documents, but never profit or staff pay",
   attendant: "Record sales and see their own shifts only",
+  driver: "Driver: a simple phone view of their own trips, to add expenses and delivered litres",
 };
 
 export function UsersClient({
@@ -27,11 +29,14 @@ export function UsersClient({
   orgName,
   users,
   adminError,
+  freeDrivers,
 }: {
   meId: string;
   orgName: string;
   users: UserRow[];
   adminError: string | null;
+  /** Drivers that don't have a login yet */
+  freeDrivers: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
@@ -103,7 +108,9 @@ export function UsersClient({
                     onChange={(e) => changeRole(u, e.target.value as Role)}
                   >
                     <option value="manager">Sales manager</option>
+                    <option value="fleet_manager">Fleet manager</option>
                     <option value="attendant">Attendant</option>
+                    {u.role === "driver" ? <option value="driver">Driver</option> : null}
                   </Select>
                 )}
               </TD>
@@ -126,24 +133,30 @@ export function UsersClient({
         </TBody>
       </Table>
 
-      {creating ? <CreateUserForm onClose={() => setCreating(false)} /> : null}
+      {creating ? <CreateUserForm freeDrivers={freeDrivers} onClose={() => setCreating(false)} /> : null}
       {resetting ? <ResetPasswordForm user={resetting} onClose={() => setResetting(null)} /> : null}
     </>
   );
 }
 
-function CreateUserForm({ onClose }: { onClose: () => void }) {
+function CreateUserForm({ freeDrivers, onClose }: { freeDrivers: { id: string; name: string }[]; onClose: () => void }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "attendant" as "manager" | "attendant" });
+  const [form, setForm] = useState({
+    full_name: "",
+    email: "",
+    password: "",
+    role: "attendant" as "manager" | "fleet_manager" | "attendant" | "driver",
+    driver_id: "",
+  });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm({ ...form, [k]: e.target.value });
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      const res = await createUser(form);
+      const res = await createUser({ ...form, driver_id: form.role === "driver" ? form.driver_id || null : null });
       if (!res.ok) {
         setErrors(res.fieldErrors ?? {});
         return void toast.error(res.error);
@@ -170,8 +183,27 @@ function CreateUserForm({ onClose }: { onClose: () => void }) {
           <Select id="url" value={form.role} onChange={set("role")}>
             <option value="attendant">Attendant</option>
             <option value="manager">Sales manager</option>
+            <option value="fleet_manager">Fleet manager</option>
+            <option value="driver">Driver</option>
           </Select>
         </Field>
+        {form.role === "driver" ? (
+          <Field
+            label="Which driver is this?"
+            htmlFor="udrv"
+            error={errors.driver_id}
+            hint={freeDrivers.length === 0 ? "Add the driver under Drivers first." : "They'll only see trips assigned to this driver."}
+          >
+            <Select id="udrv" value={form.driver_id} onChange={set("driver_id")}>
+              <option value="">Choose…</option>
+              {freeDrivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
         <Button type="submit" size="lg" disabled={pending}>
           Create user
         </Button>

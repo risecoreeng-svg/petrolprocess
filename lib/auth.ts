@@ -2,8 +2,9 @@ import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { homeFor } from "@/lib/nav";
 
-export type Role = "owner" | "manager" | "attendant";
+export type Role = "owner" | "manager" | "fleet_manager" | "attendant" | "driver";
 
 export type Profile = {
   id: string;
@@ -48,6 +49,6 @@ export const getProfile = cache(async (): Promise<Profile> => {
 /** Server-side page guard. The UI hides links too, but RLS is what actually protects the data. */
 export async function requireRole(...roles: Role[]): Promise<Profile> {
   const profile = await getProfile();
-  if (!roles.includes(profile.role)) redirect(profile.role === "attendant" ? "/sales" : "/");
+  if (!roles.includes(profile.role)) redirect(homeFor(profile.role));
   return profile;
 }

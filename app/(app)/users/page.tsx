@@ -7,6 +7,7 @@ export default async function UsersPage() {
   const me = await requireRole("owner");
   const supabase = await createClient();
   // RLS returns only profiles in the owner's organization.
+  const { data: freeDrivers } = await supabase.from("drivers").select("id, name").is("profile_id", null).is("deleted_at", null).order("name");
   const { data: profiles } = await supabase
     .from("profiles")
     .select("id, full_name, role, active, created_at")
@@ -37,6 +38,7 @@ export default async function UsersPage() {
       orgName={me.org_name}
       users={((profiles ?? []) as Omit<UserRow, "email">[]).map((p) => ({ ...p, email: emails[p.id] ?? "" }))}
       adminError={adminError}
+      freeDrivers={freeDrivers ?? []}
     />
   );
 }

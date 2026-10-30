@@ -18,6 +18,14 @@ import {
   Settings,
   TriangleAlert,
   Truck,
+  Navigation,
+  Droplet,
+  IdCard,
+  Wrench,
+  FileBadge,
+  Handshake,
+  TrendingUp,
+  Route,
   UserCog,
   X,
   type LucideIcon,
@@ -42,10 +50,24 @@ const ICONS: Record<string, LucideIcon> = {
   Settings,
   TriangleAlert,
   Truck,
+  Navigation,
+  Droplet,
+  IdCard,
+  Wrench,
+  FileBadge,
+  Handshake,
+  TrendingUp,
+  Route,
   UserCog,
 };
 
-export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", manager: "Sales manager", attendant: "Attendant" };
+export const ROLE_LABEL: Record<Role, string> = {
+  owner: "Owner",
+  manager: "Sales manager",
+  fleet_manager: "Fleet manager",
+  attendant: "Attendant",
+  driver: "Driver",
+};
 
 /** Black rounded square with a fuel drop: the PetroTrack mark. */
 export function BrandMark({ className }: { className?: string }) {
@@ -99,12 +121,14 @@ export function AppShell({
           </div>
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-          {items.map((item) => {
+          {items.map((item, i) => {
             const Icon = ICONS[item.icon];
             const on = isActive(item.href);
+            const heading = item.group && item.group !== items[i - 1]?.group ? item.group : null;
             return (
+              <div key={item.href}>
+              {heading ? <p className="px-4 pb-1 pt-4 text-xs font-medium uppercase tracking-[0.06em] text-faint">{heading}</p> : null}
               <Link
-                key={item.href}
                 href={item.href}
                 aria-current={on ? "page" : undefined}
                 className={cn(
@@ -115,6 +139,7 @@ export function AppShell({
                 <Icon className="size-[18px]" strokeWidth={on ? 2.1 : 1.8} />
                 {item.label}
               </Link>
+              </div>
             );
           })}
         </nav>

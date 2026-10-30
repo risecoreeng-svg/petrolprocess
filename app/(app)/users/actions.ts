@@ -7,13 +7,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 // Owners can only create staff; a business has exactly the owner who signed it up.
-const STAFF_ROLES = ["manager", "attendant"] as const;
+const STAFF_ROLES = ["manager", "fleet_manager", "attendant", "driver"] as const;
 
 const createSchema = z.object({
   full_name: z.string().trim().min(2, "Enter the full name").max(120),
   email: z.email("Enter a valid email"),
   password: z.string().min(8, "At least 8 characters"),
   role: z.enum(STAFF_ROLES),
+  /** Driver accounts can be linked to a driver record so they see their own trips */
+  driver_id: z.string().uuid().nullable().optional(),
 });
 
 export type ActionResult = { ok: true } | { ok: false; error: string; fieldErrors?: Record<string, string> };
@@ -56,7 +58,10 @@ export async function createUser(input: z.input<typeof createSchema>): Promise<A
       fieldErrors: Object.fromEntries(parsed.error.issues.map((i) => [String(i.path[0]), i.message])),
     };
   }
-  const { email, password, full_name, role } = parsed.data;
+  const { email, password, full_name, role, driver_id } = parsed.data;
+  if (role === "driver" && !driver_id) {
+    return { ok: false, error: "Pick which driver this login is for", fieldErrors: { driver_id: "Pick the driver" } };
+  }
   // app_metadata is server-only. handle_new_user reads org_id + role from it and attaches
   // the new account to this owner's organization (and refuses role = owner).
   const { error } = await createAdminClient().auth.admin.createUser({
@@ -64,7 +69,7 @@ export async function createUser(input: z.input<typeof createSchema>): Promise<A
     password,
     email_confirm: true,
     user_metadata: { full_name },
-    app_metadata: { org_id: me.org_id, role },
+    app_metadata: { org_id: me.org_id, role, ...(role === "driver" ? { driver_id } : {}) },
   });
   if (error) {
     return { ok: false, error: /already been registered|already exists/i.test(error.message) ? "That email already has an account" : error.message };
