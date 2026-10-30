@@ -106,10 +106,12 @@ export async function PnlBreakdown({ sp, kind }: { sp: DrillParams; kind: "profi
       <PageHeader
         title={
           <>
-            {net ? "Net profit" : "Profit"}{" "}
-            <span className={cn("tabular-nums [overflow-wrap:anywhere]", total < 0 && "text-orange")} title={money(total)}>
-              {money(total)}
-            </span>
+            {net ? "Net profit" : "Profit"}
+            {p.error ? null : (
+              <span className={cn("ml-[0.25em] tabular-nums [overflow-wrap:anywhere]", total < 0 && "text-orange")} title={money(total)}>
+                {money(total)}
+              </span>
+            )}
           </>
         }
         description={`${periodLabel(from, to)} · how this number is worked out, step by step`}

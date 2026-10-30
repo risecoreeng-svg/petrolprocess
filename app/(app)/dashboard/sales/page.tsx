@@ -113,10 +113,12 @@ export default async function SalesDrillPage({ searchParams }: { searchParams: P
       <PageHeader
         title={
           <>
-            {sp.view === "trucks" ? "Trip income" : "Sales"}{" "}
-            <span className="tabular-nums [overflow-wrap:anywhere]" title={money(headline)}>
-              {money(headline)}
-            </span>
+            {sp.view === "trucks" ? "Trip income" : "Sales"}
+            {ledgerRes.error ? null : (
+              <span className="ml-[0.25em] tabular-nums [overflow-wrap:anywhere]" title={money(headline)}>
+                {money(headline)}
+              </span>
+            )}
           </>
         }
         description={
