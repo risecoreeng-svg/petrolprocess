@@ -26,6 +26,7 @@ export function SettingsClient({
   currencies,
   history,
   baseLocked,
+  tolerance,
 }: {
   base: string;
   enabled: string[];
@@ -33,6 +34,7 @@ export function SettingsClient({
   currencies: { code: string; name: string }[];
   history: RateRow[];
   baseLocked: boolean;
+  tolerance: number;
 }) {
   const router = useRouter();
   const [baseCode, setBaseCode] = useState(base);
@@ -125,6 +127,19 @@ export function SettingsClient({
         </CardContent>
       </Card>
 
+      <Card className="h-fit">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            Fuel shortage tolerance
+            <InfoTip>When a truck delivers fewer litres than it loaded by more than this %, the trip is flagged Disputed as a possible loss or theft.</InfoTip>
+          </CardTitle>
+          <CardDescription>For fuel your trucks carry.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ToleranceForm current={tolerance} />
+        </CardContent>
+      </Card>
+
       <div className="lg:col-span-2">
         <h2 className="card-title mb-3">Rate history</h2>
         <Table>
@@ -196,6 +211,30 @@ function RateForm({ base, code, current }: { base: string; code: string; current
         </div>
       </Field>
       {current ? <p className="text-[13px] text-muted">Now: {describeRate(base, code, current.perBase)}</p> : null}
+    </form>
+  );
+}
+
+function ToleranceForm({ current }: { current: number }) {
+  const { submit, pending, errors } = useSubmit();
+  const [value, setValue] = useState(String(current));
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await submit(
+      z.object({ pct: z.number({ error: "Enter a %" }).min(0, "0 or more").max(100, "At most 100") }),
+      { pct: toNum(value) },
+      (d) => createClient().from("organizations").update({ haulage_tolerance_pct: d.pct }).not("id", "is", null),
+      "Tolerance saved",
+    );
+  }
+  return (
+    <form onSubmit={onSubmit} className="flex items-end gap-2" noValidate>
+      <Field label="Allowed shortage (%)" htmlFor="tol" error={errors.pct} className="flex-1">
+        <Input id="tol" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className="min-w-0" />
+      </Field>
+      <Button type="submit" disabled={pending} className="h-12">
+        Save
+      </Button>
     </form>
   );
 }

@@ -53,7 +53,7 @@ Copy `.env.example` to `.env.local` and fill it in. Use the publishable key for 
 
 ## 4. Run the migrations
 
-The schema lives in `supabase/migrations/` (tables → triggers → RLS → views → `005` currencies, add-stock and deliveries). `005` is additive, so it can be pushed onto a project that already has data.
+The schema lives in `supabase/migrations/` (tables → triggers → RLS → views → `005` currencies, add-stock and deliveries → `006` fleet roles → `007` Truck Business). `005`–`007` only add to the schema, so they can be pushed onto a project that already has data. `006` is separate because Postgres can't use a new enum value in the same transaction that adds it.
 
 ```bash
 npx supabase login
@@ -105,8 +105,9 @@ This renames that org to "PetroTrack Demo Depot" and loads 14 days of data:
 - 3 credit customers
 - cash, mobile money and credit sales, some in SDG and SSP
 - demo exchange rates, expenses and a credit payment
+- **Truck Business:** truck profiles (one third-party truck on a 15% payout), driver licences, 6 trips (paid, unpaid and overdue, a fuel haulage for a client with a 1.2% shortage flagged Disputed, our own petrol delivered into Tank 1, a planned trip and one on the road), driver advances, truck costs in three currencies, a monthly salary, documents (one expired) and service reminders
 
-It refuses to run if the account isn't an owner or its org already has tanks.
+It refuses to run if the account isn't an owner or its org already has data.
 
 ## 7. Deploy to Vercel
 
@@ -129,22 +130,26 @@ It refuses to run if the account isn't an owner or its org already has tanks.
 - **Uniqueness is per organization:** truck plates, fuel type names and M-Pesa codes.
 - **Sign-up** runs as a trigger on `auth.users`:
   - A public sign-up always creates a **new** organization, and that user is its owner.
-  - Staff are created by the owner through the server-only admin API, with `app_metadata.org_id` and a role of manager or attendant. Users can't set `app_metadata` themselves, so nobody can join someone else's organization.
+  - Staff are created by the owner through the server-only admin API, with `app_metadata.org_id` and a role of sales manager, fleet manager, attendant or driver (a driver login is linked to a driver record). Users can't set `app_metadata` themselves, so nobody can join someone else's organization.
 - **The Users screen** only lists, creates, deactivates or resets the password of staff in the owner's own organization. It checks the target through the owner's RLS session before using the admin API.
 
 ## Roles (per organization)
 
-| | Owner | Sales manager | Attendant |
-|---|:-:|:-:|:-:|
-| Record sales | ✓ | ✓ | ✓ (needs an open shift; price is fixed to the pump price) |
-| Own shifts and cash hand-over | ✓ | ✓ | ✓ |
-| Add stock, trucks, expenses, customers | ✓ | ✓ (sees what stock cost) | — |
-| Cancel a sale (with a reason) | ✓ | ✓ | — |
-| Exchange rates, currencies | ✓ | — | — |
-| Reports | ✓ full P&L | ✓ sales and expenses only | — |
-| Profit, cost of fuel, landed cost, stock value | ✓ | — | — |
-| Remove deliveries, payments, expenses | ✓ | — | — |
-| Users and audit log | ✓ | — | — |
+| | Owner | Sales manager | Fleet manager | Attendant | Driver |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Record sales | ✓ | ✓ | — | ✓ (needs an open shift) | — |
+| Own shifts and cash hand-over | ✓ | ✓ | — | ✓ | — |
+| Add stock, depot expenses, depot customers | ✓ | ✓ (sees what stock cost) | — | — | — |
+| Cancel a sale (with a reason) | ✓ | ✓ | — | — | — |
+| Trucks and drivers | ✓ | ✓ | ✓ | — | — |
+| Trips, trip expenses, fuel loaded / delivered | ✓ | — | ✓ | — | own trips only (no fee) |
+| Truck costs, documents, reminders, trip clients | ✓ | — | ✓ | — | — |
+| Staff pay (driver pay, salaries) | ✓ | — | — | — | — |
+| Exchange rates, currencies | ✓ | — | — | — | — |
+| Reports | ✓ all | ✓ depot sales and expenses | ✓ truck reports, no profit | — | — |
+| Profit, margins, stock value, truck performance | ✓ | — | — | — | — |
+| Remove deliveries, payments, expenses | ✓ | — | — | — | — |
+| Users and audit log | ✓ | — | — | — | — |
 
 The database enforces these limits, not just the UI. In the database the sales manager role is called `manager`. Sales managers and attendants read sales through `sales_safe`, which has no cost of fuel sold, so they never see profit or margins. Sales managers can read what deliveries cost. Attendants can never add stock (`add_stock()` refuses them, and direct inserts into `purchases` are not granted to anyone).
 
@@ -162,6 +167,35 @@ The database enforces these limits, not just the UI. In the database the sales m
 - **Add stock** (owner, sales manager): fuel, tank (or create one inline with its name and capacity), litres, cost per litre or total, currency, selling price, supplier and truck (or add them inline), trip cost and date. One database call; the litres can be sold immediately and the tank's average cost updates.
 - **Sell fuel:** litres, then the amount or price per litre in any accepted currency (defaults to the most-used currency and the pump price), payment type (cash, mobile money with an optional reference, credit), optional customer, and delivery now or scheduled. The litres leave the tank when the sale is recorded, so stock can't be oversold.
 - **Deliveries due:** scheduled sales are listed on the Sales screen (and on the dashboard when due or late) with **Delivered** and **Cancel**. Cancelling needs a reason and puts the litres back.
+
+## Truck Business
+
+Trucks earn money on hired trips and also bring fuel to our own depot.
+
+- **Trucks:** make/model, year, type (tanker, flatbed, other), capacity in litres or tonnes, current driver, status (Available, On a trip, In maintenance, Inactive), odometer. A truck owned by someone else has an owner name and a payout: a fixed amount per trip (base currency) or a % of the trip's income. That payout is a cost in the truck's profit.
+- **Trips:** date, truck, driver, client (or "our own depot" for fuel), route, cargo (fuel, goods, other), fee in any currency (rate captured when entered), status Planned → On the road → Delivered, or Cancelled. Start and end odometer. Delivered trips are locked; mistakes are voided with a reason (never deleted).
+  - **Income:** the fee plus extra lines (waiting time, extra drops).
+  - **Expenses:** fuel, driver pay / allowance (owner only), tolls and border fees, loading, police / checkpoint, meals, repairs on the road, other. Any currency, optional receipt photo.
+  - **Trip profit** = fee + extras − trip expenses (− the truck owner's share), shown live to the owner in USD and the trip's currency.
+- **Fuel haulage:** for fuel trips, the fuel type, litres loaded (with supplier / depot and loading ticket) and litres delivered. **Shortage** = loaded − delivered, in litres and %. Above the tolerance (Settings, default 0.5%) the trip is flagged **Disputed** for a possible loss or theft; it can later be marked Resolved with a note.
+  - **For a client:** only the haulage is tracked, and a receivable is created when the trip is delivered.
+  - **For our own depot:** delivering the trip creates exactly one stock purchase in the chosen tank, using the same add-stock logic. It is linked to the trip (`purchases.trip_id` is unique). Voiding the trip takes the fuel back out. Any internal fee on the trip becomes the depot's transport cost, so Combined profit isn't double counted.
+- **Fuel movements:** every fuel trip with truck, driver, client, route, loaded, delivered and shortage, filterable, with totals and CSV.
+- **Truck costs:** fuel for the truck (litres, odometer), driver salary (owner only), licence / permit / insurance / inspection, tyres, repairs (workshop), parking, fines, other. Monthly items (salary, insurance) can repeat. They post themselves when due, and posting is safe to run more than once.
+- **Documents and reminders:** expiry dates per truck (licence, insurance, inspection, permits) and drivers' licences. There are also service reminders by km or date.
+  - The dashboard lists anything expired or due within 30 days.
+  - A trip can't start while its truck's insurance or licence is expired, unless the owner overrides with a reason (recorded on the trip).
+- **Clients and money owed:** trip clients are the same customers. Each delivered trip is a receivable. Payments can be full or partial, in any currency, against a trip or on account, and overpaying is refused. Trip clients shows what is owed and who is late. Each trip prints a PDF invoice / delivery note with the litres loaded and delivered.
+- **Drivers:** phone, licence number and expiry, assigned truck, trips done, and pay this month (owner only). Cash advances per trip: given, returned, and what is still with the driver after expenses paid from it.
+- **Driver phone view (optional):** a driver login sees only their own trips (never the fee). It can start a trip, add road expenses with photos, and report the litres delivered and the end odometer. For own-depot fuel, the office then puts it into stock.
+- **Truck performance (owner):** per truck and per trip, for any date range:
+  - trips, income, trip expenses, the owner's share and truck costs
+  - net profit, profit per trip and per km
+  - idle days, fuel hauled and shortage
+
+  There is a ranking by profit, and each truck's page shows its trips, costs, fuel movements, documents and a monthly profit chart.
+- **Dashboard toggle:** Combined / Depot / Trucks changes the owner's headline numbers and chart.
+- **Reports:** trip statement per client, fuel movements, truck profit (owner), expenses by truck and category, and expiring documents. All export to CSV and PDF.
 
 ## How the money is calculated
 
@@ -201,7 +235,7 @@ npm run lint
 npm run test:db
 ```
 
-This runs all the migrations against an in-memory Postgres (PGlite) with a stubbed `auth` schema, then runs 167 checks.
+This runs all the migrations against an in-memory Postgres (PGlite) with a stubbed `auth` schema, then runs 242 checks.
 
 **Currencies and stock flow**
 - A sale of 450,000 SDG at 1 USD = 2,500 SDG is stored as 180.00 USD.
@@ -212,6 +246,18 @@ This runs all the migrations against an in-memory Postgres (PGlite) with a stubb
 - A sale cannot exceed the stock in the tank.
 - Scheduled deliveries, cancel-with-reason and owner-only rates.
 - Migration 005 applies cleanly on top of existing single-currency data.
+
+**Truck Business**
+- Trip profit in mixed currencies: a 3,000,000 SDG fee plus 50 USD of extras, less 500,000 SSP + 30 USD + 70 USD of expenses, gives 850.00 USD.
+- Shortage: 30,000 L loaded and 29,700 delivered is 300 L (1%), flagged Disputed; 0.2% stays OK.
+- Own-depot fuel goes into the tank exactly once. A driver's report alone adds nothing, a second delivery is refused, and the database refuses a second purchase for the trip.
+- Voiding a trip needs a reason, keeps the record and takes own-depot fuel back out.
+- Expired insurance blocks starting a trip. Only the owner can override, with a reason.
+- A fleet manager sees no profit views, no driver pay lines and no salaries, and can't record staff pay.
+- A driver sees only their own trips and no fees, and can add expenses but not income.
+- Client payments convert currencies and can't exceed what is owed.
+- Repeating costs post once per month due.
+- Cross-tenant isolation on all 8 new tables, 4 new views and every trip function, for owner, fleet manager and driver.
 
 **Sign-up**
 - One sign-up creates the organization, owner profile and fuel types in a single transaction.
