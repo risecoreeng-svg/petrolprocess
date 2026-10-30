@@ -768,6 +768,59 @@ for (const [label, uid] of [["owner", A_OWNER], ["fleet manager", A_FLEET], ["dr
 checkTrue("Org B's truck business data is unchanged after all attempts", (await fleetSnapshot()) === FLEET_B_BEFORE);
 await asAdmin();
 
+// =====================================================================================
+// Migration 008: dip losses in profit, sales ledger, sale history.
+section = "Dip losses count in net profit (bug fix)";
+await asUser(A_OWNER);
+const netBefore = Number((await one(`select coalesce(sum(net_profit), 0) n from daily_summary`)).n);
+await asAdmin();
+const tankNow = Number((await one(`select current_litres l from tanks where id = '${A_TANK}'`)).l);
+const avgNow = Number((await one(`select avg_cost_per_litre a from tank_costing where tank_id = '${A_TANK}'`)).a);
+await asUser(A_MANAGER);
+await db.exec(`insert into stock_adjustments(tank_id, dip_litres, reason, system_litres) values ('${A_TANK}', ${tankNow - 100}, 'Dip: 100 L missing', 0)`);
+await asUser(A_OWNER);
+const adj = await one(`select value_change, cost_per_litre from stock_adjustment_values order by date desc limit 1`);
+check("A 100 L loss is valued at the tank's average cost", adj.value_change, (-100 * avgNow).toFixed(2));
+const netAfter = Number((await one(`select coalesce(sum(net_profit), 0) n from daily_summary`)).n);
+check("Net profit drops by the value of the fuel lost", netAfter - netBefore, (-100 * avgNow).toFixed(2));
+await asUser(A_MANAGER);
+await expectError("A sales manager can't read what the lost fuel was worth", `select cost_per_litre from stock_adjustments`, "permission denied");
+checkTrue("…and sees no rows in stock_adjustment_values", (await count(`select count(*) n from stock_adjustment_values`)) === 0);
+checkTrue("…but can still read the dip readings", (await count(`select count(*) n from stock_adjustments where tank_id = '${A_TANK}'`)) >= 1);
+
+section = "Depot and truck summaries don't double count";
+await asAdmin();
+const depotExp = Number((await one(`select coalesce(sum(amount), 0) s from expenses where org_id = '${ORG_A}' and deleted_at is null`)).s);
+const truckExp = Number((await one(`select coalesce(sum(amount), 0) s from truck_expenses where org_id = '${ORG_A}' and deleted_at is null`)).s);
+await asUser(A_OWNER);
+check("daily_summary expenses = depot expenses only", (await one(`select coalesce(sum(expenses), 0) s from daily_summary`)).s, depotExp);
+check("truck_daily_summary truck costs = truck expenses only", (await one(`select coalesce(sum(truck_expenses), 0) s from truck_daily_summary`)).s, truckExp);
+check(
+  "Combined net = depot net + trucks net (no overlap)",
+  Number((await one(`select coalesce(sum(net_profit), 0) s from daily_summary`)).s) + Number((await one(`select coalesce(sum(net_profit), 0) s from truck_daily_summary`)).s),
+  Number((await one(`select (select coalesce(sum(net_profit), 0) from daily_summary) + (select coalesce(sum(net_profit), 0) from truck_daily_summary) s`)).s),
+);
+check("A sale in SDG is added to sales in USD, not at face value", (await one(`select total from sales where id = '${SDG_SALE}'`)).total, 180);
+
+section = "Sales ledger and sale history";
+await asUser(A_MANAGER);
+const voided = await one(`select deleted_at, void_reason from sales_ledger where id = 'a8000000-0000-0000-0000-000000000001'`);
+checkTrue("Sales manager sees voided sales in the ledger, with the reason", !!voided?.deleted_at && voided.void_reason === "Customer cancelled");
+await expectError("The ledger has no cost columns", `select cost_total from sales_ledger`, "does not exist");
+const hist = (await db.query(`select * from sale_history('a8000000-0000-0000-0000-000000000001')`)).rows;
+checkTrue("Sale history shows the insert and the void", hist.some((h) => h.action === "INSERT") && hist.some((h) => h.action === "SOFT_DELETE"));
+checkTrue("Sale history hides cost from a sales manager", hist.every((h) => !(h.new_data && "cost_total" in h.new_data)));
+await asUser(A_OWNER);
+const ownerHist = (await db.query(`select * from sale_history('a8000000-0000-0000-0000-000000000001')`)).rows;
+checkTrue("The owner sees cost in the history", ownerHist.some((h) => h.new_data && "cost_total" in h.new_data));
+await asUser(A_ATT);
+checkTrue("An attendant sees nothing in the ledger", (await count(`select count(*) n from sales_ledger`)) === 0);
+await expectError("An attendant can't read sale history", `select * from sale_history('a8000000-0000-0000-0000-000000000001')`, "Not allowed");
+await asUser(A_OWNER);
+checkTrue("The ledger never shows another organization's sales", (await count(`select count(*) n from sales_ledger where org_id = '${ORG_B}'`)) === 0);
+await expectError("Sale history refuses another organization's sale", `select * from sale_history('${B_SALE}')`, "Sale not found");
+await asAdmin();
+
 section = "Signed out and deactivated";
 await asAnon();
 await expectError("Signed-out visitors cannot read tables", `select count(*) from trucks`, "permission denied");

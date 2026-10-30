@@ -11,7 +11,7 @@ export default async function StockPage() {
   const [{ data: tanks }, { data: fuelTypes }, { data: adjustments }, { data: values }, { data: staff }] = await Promise.all([
     supabase.from("tanks").select("*").is("deleted_at", null).order("name"),
     supabase.from("fuel_types").select("*").is("deleted_at", null).order("name"),
-    supabase.from("stock_adjustments").select("*").order("created_at", { ascending: false }).limit(100),
+    supabase.from("stock_adjustments").select("id, tank_id, date, created_at, system_litres, dip_litres, difference, reason, created_by").order("created_at", { ascending: false }).limit(100),
     isOwner ? supabase.from("stock_value").select("tank_id, avg_cost_per_litre, value") : Promise.resolve({ data: null }),
     supabase.from("profiles").select("id, full_name"),
   ]);
