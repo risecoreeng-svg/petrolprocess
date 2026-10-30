@@ -18,7 +18,7 @@ import { SalesExpensesChart } from "@/components/sales-expenses-chart";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/ui/info-tip";
-import { Badge, Progress, StatCard } from "@/components/ui/misc";
+import { amountClass, Badge, Progress, StatCard } from "@/components/ui/misc";
 
 type Day = { date: string; sales: number; litres?: number; cost_of_fuel?: number; gross_profit?: number; expenses?: number; net_profit?: number };
 
@@ -44,6 +44,13 @@ export default async function DashboardPage({
   const disp = displayCurrency(await getMoneyContext(), sp.cur);
   const money = (v: number | string | null | undefined) => formatMoney(Number(v ?? 0) * disp.rate, disp.code);
   const prev = previousRange(range, from, to);
+  const drill = (path: string, extra: Record<string, string> = {}) => {
+    const q = new URLSearchParams();
+    for (const k of ["range", "from", "to", "cur", "view"] as const) if (typeof sp[k] === "string" && sp[k]) q.set(k, sp[k]!);
+    for (const [k, v] of Object.entries(extra)) q.set(k, v);
+    const qs = q.toString();
+    return qs ? `${path}?${qs}` : path;
+  };
   const supabase = await createClient();
 
   const [summaryRes, expensesRes, { data: trucks }, { data: tanks }, { data: fuelTypes }, { data: balances }, stockRes] =
@@ -260,18 +267,19 @@ export default async function DashboardPage({
 
       {/* Headline numbers */}
       {isFleet ? (
-        <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="On the road" caption="Trips under way now" value={String(fleet.onRoad)} />
-          <StatCard label="Planned" caption="Trips not started yet" value={String(fleet.planned)} />
-          <StatCard label="Delivered" caption="Trips finished in this period" value={String(fleet.delivered)} />
-          <StatCard label="Fuel hauled" caption="Litres delivered in this period" value={litres(fleet.litres)} />
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          <StatCard label="On the road" caption="Trips under way now" value={String(fleet.onRoad)} href="/trips?status=on_road" />
+          <StatCard label="Planned" caption="Trips not started yet" value={String(fleet.planned)} href="/trips?status=planned" />
+          <StatCard label="Delivered" caption="Trips finished in this period" value={String(fleet.delivered)} href="/trips?status=delivered" />
+          <StatCard label="Fuel hauled" caption="Litres delivered in this period" value={litres(fleet.litres)} href="/trips?status=delivered" />
         </div>
       ) : (
-      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard
           label={view === "trucks" ? "Trip income" : "Sales"}
           caption={view === "depot" ? "Money in from fuel sold" : view === "trucks" ? "Money in from trips delivered" : "Fuel sold plus trips delivered"}
           value={money(now.sales)}
+          href={drill("/dashboard/sales", view === "trucks" ? { tab: "trips" } : {})}
           change={pctChange(now.sales, before.sales)}
           changeLabel={prev.label}
         />
@@ -280,6 +288,7 @@ export default async function DashboardPage({
             label="Profit"
             caption={view === "depot" ? "Sales minus what the fuel cost you" : view === "trucks" ? "Trip income minus trip costs" : "Fuel and trip profit together"}
             value={money(now.profit)}
+            href={drill("/dashboard/profit")}
             change={pctChange(now.profit, before.profit)}
             changeLabel={prev.label}
             tone={now.profit < 0 ? "negative" : undefined}
@@ -295,6 +304,7 @@ export default async function DashboardPage({
             label="Fuel sold"
             caption="Litres that left the pumps"
             value={litres(now.litres)}
+            href={drill("/dashboard/sales")}
             change={pctChange(now.litres, before.litres)}
             changeLabel={prev.label}
           />
@@ -303,6 +313,7 @@ export default async function DashboardPage({
           label="Expenses"
           caption={view === "trucks" ? "Truck costs not tied to one trip" : view === "combined" && isOwner ? "Depot running costs plus truck costs" : "Money out on running costs"}
           value={money(now.expenses)}
+          href={drill("/dashboard/expenses", view === "trucks" ? { kind: "truck" } : view === "depot" ? { kind: "depot" } : {})}
           change={pctChange(now.expenses, before.expenses)}
           changeLabel={prev.label}
           costly
@@ -313,13 +324,14 @@ export default async function DashboardPage({
             label="Net profit"
             caption="What you keep after all costs"
             value={money(now.net)}
+            href={drill("/dashboard/net-profit")}
             change={pctChange(now.net, before.net)}
             changeLabel={prev.label}
             tone={now.net < 0 ? "negative" : "positive"}
             tip={<InfoTip>Profit minus expenses. If this is negative, the business spent more than it made in this period.</InfoTip>}
           />
         ) : (
-          <StatCard label="Money owed" caption="Customers who bought on credit" value={money(owed)} />
+          <StatCard label="Money owed" caption="Customers who bought on credit" value={money(owed)} href={drill("/dashboard/money-owed")} />
         )}
       </div>
       )}
@@ -407,7 +419,10 @@ export default async function DashboardPage({
           <CardContent className="space-y-4">
             {isOwner ? (
               <p className="text-[15px] text-muted">
-                Worth <span className="font-semibold text-fg">{money(stockValue)}</span> at cost
+                Worth <span className="font-semibold text-fg [overflow-wrap:anywhere]">{money(stockValue)}</span> at cost ·{" "}
+                <Link href={drill("/dashboard/stock-value")} className="underline underline-offset-2">
+                  How it&apos;s worked out
+                </Link>
               </p>
             ) : null}
             {allTanks.length === 0 ? (
@@ -441,10 +456,10 @@ export default async function DashboardPage({
               Money owed to you
               <InfoTip>Fuel customers took on credit and haven&apos;t paid for yet. &quot;Late&quot; means past the days you gave them to pay.</InfoTip>
             </CardTitle>
-            <CornerLink href="/customers" label="Open customers" />
+            <CornerLink href={drill("/dashboard/money-owed")} label="See who owes you" />
           </CardHeader>
           <CardContent>
-            <p className="text-[34px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{money(owed)}</p>
+            <p title={money(owed)} className={cn("font-semibold leading-tight tracking-[-0.02em] tabular-nums [overflow-wrap:anywhere]", amountClass(money(owed)))}>{money(owed)}</p>
             <p className="mt-1 text-[15px] text-muted">
               {overdue > 0 ? <span className="font-medium text-orange">{money(overdue)} is late</span> : "Nothing is late"}
             </p>
@@ -536,7 +551,7 @@ function TripOwedCard({ owed, overdue }: { owed: string; overdue: string | null 
         <CornerLink href="/trip-clients" label="Open trip clients" />
       </CardHeader>
       <CardContent>
-        <p className="text-[34px] font-semibold leading-none tracking-[-0.02em] tabular-nums">{owed}</p>
+        <p title={owed} className={cn("font-semibold leading-tight tracking-[-0.02em] tabular-nums [overflow-wrap:anywhere]", amountClass(owed))}>{owed}</p>
         <p className="mt-1 text-[15px] text-muted">{overdue ? <span className="font-medium text-orange">{overdue} is late</span> : "Nothing is late"}</p>
       </CardContent>
     </Card>

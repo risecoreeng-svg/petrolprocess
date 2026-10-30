@@ -1,4 +1,5 @@
 import * as React from "react";
+import Link from "next/link";
 import { cva, type VariantProps } from "class-variance-authority";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -93,6 +94,29 @@ export function PageHeader({
   );
 }
 
+
+/**
+ * Font size for a headline amount that never needs "...": long values step down in size and
+ * may wrap at a natural break instead of being cut off. The full value is also in the title.
+ */
+export function amountClass(value: React.ReactNode, size: "card" | "tile" = "card") {
+  const n = typeof value === "string" || typeof value === "number" ? String(value).length : 8;
+  if (size === "tile") {
+    return n <= 10 ? "text-[22px] sm:text-[26px]" : n <= 14 ? "text-[19px] sm:text-[22px]" : n <= 18 ? "text-[16px] sm:text-[19px]" : "text-[14px] sm:text-[16px]";
+  }
+  return n <= 9
+    ? "text-[26px] nav:text-[30px]"
+    : n <= 12
+      ? "text-[22px] nav:text-[26px]"
+      : n <= 15
+        ? "text-[18px] nav:text-[22px]"
+        : n <= 19
+          ? "text-[16px] nav:text-[19px]"
+          : "text-[14px] nav:text-[16px]";
+}
+
+const amountBase = "mt-1 font-semibold leading-tight tracking-[-0.02em] tabular-nums [overflow-wrap:anywhere]";
+
 /** Small number tile used inside pages (e.g. a truck's totals). */
 export function Stat({
   label,
@@ -114,11 +138,8 @@ export function Stat({
         {tip}
       </div>
       <p
-        className={cn(
-          "mt-1 truncate text-[22px] font-semibold tracking-[-0.02em] tabular-nums sm:text-[26px]",
-          tone === "positive" && "text-green",
-          tone === "negative" && "text-orange",
-        )}
+        title={typeof value === "string" ? value : undefined}
+        className={cn(amountBase, amountClass(value, "tile"), tone === "positive" && "text-green", tone === "negative" && "text-orange")}
       >
         {value}
       </p>
@@ -130,6 +151,7 @@ export function Stat({
 /**
  * Headline number with a plain-English caption ("Money in") and an optional change against
  * the previous period. `costly` flips the colour: for expenses, going up is bad.
+ * With `href` the whole card opens a detail page.
  */
 export function StatCard({
   label,
@@ -140,6 +162,7 @@ export function StatCard({
   costly,
   tone,
   tip,
+  href,
 }: {
   label: string;
   caption: string;
@@ -150,26 +173,29 @@ export function StatCard({
   costly?: boolean;
   tone?: "positive" | "negative";
   tip?: React.ReactNode;
+  href?: string;
 }) {
   const good = change === null || change === undefined ? null : costly ? change <= 0 : change >= 0;
-  return (
-    <div className="flex min-w-0 flex-col rounded-[var(--radius-tile)] bg-surface-3 p-5 shadow-[var(--shadow-soft)]">
-      <div className="flex items-center gap-1.5">
+  const body = (
+    <>
+      <div className="flex items-start gap-1.5">
         <span className="text-[15px] font-medium">{label}</span>
         {tip}
+        {href ? (
+          <span className="ml-auto grid size-7 shrink-0 place-items-center rounded-full border border-line-strong text-muted transition-colors group-hover:border-black group-hover:bg-black group-hover:text-white">
+            <ArrowUpRight className="size-3.5" />
+          </span>
+        ) : null}
       </div>
       <span className="text-[13px] text-muted">{caption}</span>
       <p
-        className={cn(
-          "mt-3 truncate text-[28px] font-semibold leading-tight tracking-[-0.02em] tabular-nums nav:text-[30px]",
-          tone === "positive" && "text-green",
-          tone === "negative" && "text-orange",
-        )}
+        title={typeof value === "string" ? value : undefined}
+        className={cn(amountBase, "mt-3", amountClass(value), tone === "positive" && "text-green", tone === "negative" && "text-orange")}
       >
         {value}
       </p>
       {change !== undefined ? (
-        <p className="mt-1.5 flex items-center gap-1 text-[13px] text-muted">
+        <p className="mt-auto flex flex-wrap items-center gap-x-1 pt-1.5 text-[13px] text-muted">
           {change === null ? (
             <span>No earlier data to compare</span>
           ) : (
@@ -184,6 +210,20 @@ export function StatCard({
           )}
         </p>
       ) : null}
-    </div>
+    </>
+  );
+  const box = "flex min-w-0 flex-col rounded-[var(--radius-tile)] bg-surface-3 p-4 shadow-[var(--shadow-soft)] sm:p-5";
+  if (!href) return <div className={box}>{body}</div>;
+  return (
+    <Link
+      href={href}
+      className={cn(
+        box,
+        "group transition-[box-shadow,transform] hover:-translate-y-0.5 hover:shadow-[var(--shadow-lift)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/30",
+      )}
+      aria-label={`${label}: ${typeof value === "string" ? value : ""}. Open details`}
+    >
+      {body}
+    </Link>
   );
 }
