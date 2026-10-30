@@ -174,7 +174,7 @@ export function AppShell({
       </header>
 
       <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 pb-32 pt-3 nav:px-10 nav:pb-16 nav:pt-9">
-        {staleRates.length > 0 && role !== "attendant" ? (
+        {staleRates.length > 0 && role !== "attendant" && role !== "driver" ? (
           <div className="mb-5 flex flex-wrap items-center gap-3 rounded-[var(--radius-tile)] bg-yellow px-4 py-3 text-[15px] text-[#1c1c1a]">
             <TriangleAlert className="size-[18px] shrink-0" />
             <p className="min-w-0 flex-1">

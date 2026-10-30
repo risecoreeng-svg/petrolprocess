@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { ArrowUpRight, CalendarClock, Check, Droplets, HandCoins, Wrench } from "lucide-react";
 import { getProfile } from "@/lib/auth";
+import { homeFor } from "@/lib/nav";
 import { createClient } from "@/lib/supabase/server";
 import { eachDay, pctChange, previousRange, resolveRange } from "@/lib/range";
 import { formatDate, litres, nairobiToday, num } from "@/lib/utils";
@@ -30,7 +31,7 @@ export default async function DashboardPage({
   searchParams: Promise<{ range?: string; from?: string; to?: string; cur?: string }>;
 }) {
   const profile = await getProfile();
-  if (profile.role === "attendant") redirect("/sales");
+  if (profile.role === "attendant" || profile.role === "driver") redirect(homeFor(profile.role));
   const isOwner = profile.role === "owner";
   const sp = await searchParams;
   const { range, from, to } = resolveRange(sp);

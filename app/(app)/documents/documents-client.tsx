@@ -13,7 +13,7 @@ import { DOC_TYPES, expiryState, reminderState, type DocType, type FleetDriver, 
 import { ReceiptInput, ReceiptLink } from "@/components/receipt-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, Input, Select } from "@/components/ui/form-controls";
+import { Field, Input } from "@/components/ui/form-controls";
 import { Badge, EmptyState } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
 
