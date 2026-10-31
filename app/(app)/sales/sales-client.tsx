@@ -18,6 +18,8 @@ import { Field, Input, Select } from "@/components/ui/form-controls";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
 import { DeleteButton } from "@/components/delete-record";
+import { CONFIRM_FIRST, PriceSummary, usePriceCheck } from "@/components/price-check";
+import type { PriceRefs } from "@/lib/price-check";
 
 export type SaleRow = {
   id: string;
@@ -71,6 +73,7 @@ export function SalesClient({
   staff,
   suppliers,
   trucks,
+  refs,
 }: {
   role: Role;
   userId: string;
@@ -84,6 +87,7 @@ export function SalesClient({
   staff: { id: string; full_name: string }[];
   suppliers: Supplier[];
   trucks: Truck[];
+  refs: PriceRefs;
 }) {
   const router = useRouter();
   const { base, enabled, perBase, money, fmt } = useMoney();
@@ -130,6 +134,11 @@ export function SalesClient({
   // Amount in the chosen currency: what was typed, else litres × pump price.
   const amount = priceMode === "amount" ? (typed ?? saleLitres * pumpPrice) : saleLitres * (typed ?? pumpPrice);
   const amountInBase = rate ? amount / rate : 0;
+  // Price per litre actually charged, against the pump price and the last sale (in the base currency).
+  const priceCheck = usePriceCheck(saleLitres > 0 ? amountInBase / saleLitres : 0, [
+    { label: "pump price", value: fuelId ? refs.fuel[fuelId]?.pump : null },
+    { label: "last sale price", value: fuelId ? refs.fuel[fuelId]?.lastSale : null },
+  ], true);
   const customer = customers.find((c) => c.id === customerId);
   const available = customer ? Number(customer.credit_limit) - Number(customer.balance) : null;
   const needsShift = role === "attendant" && !openShift;
@@ -162,6 +171,7 @@ export function SalesClient({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!priceCheck.ok) return toast.error(CONFIRM_FIRST);
     const ok = await submit(
       saleSchema,
       {
@@ -389,6 +399,8 @@ export function SalesClient({
                     : "No selling price set for this fuel yet, so type what it was sold for."}
                 </p>
                 {errors.amount ? <p className="text-[13px] text-orange">{errors.amount}</p> : null}
+                {saleLitres > 0 && amount > 0 ? <PriceSummary perLitre={amount / saleLitres} total={amount} currency={currency} /> : null}
+                {priceCheck.node}
               </div>
 
               {/* 4. Payment */}
@@ -549,6 +561,7 @@ export function SalesClient({
             suppliers={suppliers}
             trucks={trucks}
             defaultFuelId={stockFor}
+            refs={refs}
             onDone={() => setStockFor(null)}
           />
         </Modal>

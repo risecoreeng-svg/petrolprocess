@@ -3,6 +3,7 @@ import { getMoneyContext } from "@/lib/money-server";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, nairobiToday } from "@/lib/utils";
 import type { Customer, FuelType, Supplier, Tank, Truck } from "@/lib/types";
+import { getPriceRefs } from "@/lib/price-refs-server";
 import { SalesClient, type SaleRow } from "./sales-client";
 
 const SALE_COLUMNS =
@@ -26,6 +27,7 @@ export default async function SalesPage() {
     { data: staff },
     suppliersRes,
     trucksRes,
+    priceRefs,
   ] = await Promise.all([
     getMoneyContext(),
     supabase.from("fuel_types").select("*").is("deleted_at", null).order("name"),
@@ -45,6 +47,7 @@ export default async function SalesPage() {
     supabase.from("profiles").select("id, full_name"),
     canStock ? supabase.from("suppliers").select("*").is("deleted_at", null).order("name") : Promise.resolve({ data: [] }),
     canStock ? supabase.from("trucks").select("*").is("deleted_at", null).order("plate_number") : Promise.resolve({ data: [] }),
+    getPriceRefs(),
   ]);
 
   // Default currency for a new sale: the one this business used most in the last 30 days.
@@ -69,6 +72,7 @@ export default async function SalesPage() {
       staff={staff ?? []}
       suppliers={(suppliersRes.data ?? []) as Supplier[]}
       trucks={(trucksRes.data ?? []) as Truck[]}
+      refs={priceRefs}
     />
   );
 }

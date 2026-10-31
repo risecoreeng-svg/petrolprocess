@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { FuelType, Supplier, Tank, Truck } from "@/lib/types";
+import { getPriceRefs } from "@/lib/price-refs-server";
 import { PurchasesClient, type DeliveryRow } from "./purchases-client";
 
 export default async function PurchasesPage({
@@ -22,12 +23,13 @@ export default async function PurchasesPage({
   if (truck) history = history.eq("truck_id", truck);
   if (supplier) history = history.eq("supplier_id", supplier);
 
-  const [{ data: rows }, { data: trucks }, { data: suppliers }, { data: tanks }, { data: fuelTypes }] = await Promise.all([
+  const [{ data: rows }, { data: trucks }, { data: suppliers }, { data: tanks }, { data: fuelTypes }, priceRefs] = await Promise.all([
     history.order("date", { ascending: false }).order("created_at", { ascending: false }).limit(200),
     supabase.from("trucks").select("*").is("deleted_at", null).order("plate_number"),
     supabase.from("suppliers").select("*").is("deleted_at", null).order("name"),
     supabase.from("tanks").select("*").is("deleted_at", null).order("name"),
     supabase.from("fuel_types").select("*").is("deleted_at", null).order("name"),
+    getPriceRefs(),
   ]);
 
   return (
@@ -38,6 +40,7 @@ export default async function PurchasesPage({
       tanks={(tanks ?? []) as Tank[]}
       fuelTypes={(fuelTypes ?? []) as FuelType[]}
       filter={{ truck: truck ?? "", supplier: supplier ?? "" }}
+      refs={priceRefs}
     />
   );
 }

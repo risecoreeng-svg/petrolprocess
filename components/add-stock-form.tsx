@@ -2,10 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { z } from "zod";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
 import { cn, litres, nairobiToday, num } from "@/lib/utils";
 import type { FuelType, Supplier, Tank, Truck } from "@/lib/types";
+import { NO_REFS, type PriceRefs } from "@/lib/price-check";
+import { CONFIRM_FIRST, PriceSummary, usePriceCheck } from "@/components/price-check";
 import { useMoney } from "@/components/money-provider";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/form-controls";
@@ -48,6 +51,7 @@ export function AddStockForm({
   trucks,
   defaultFuelId,
   onDone,
+  refs = NO_REFS,
 }: {
   fuelTypes: FuelType[];
   tanks: Tank[];
@@ -55,6 +59,8 @@ export function AddStockForm({
   trucks: Truck[];
   defaultFuelId?: string;
   onDone?: () => void;
+  /** Usual prices, for the "this looks wrong" warnings */
+  refs?: PriceRefs;
 }) {
   const { base, enabled, perBase, money, fmt } = useMoney();
   const { submit, pending, errors } = useSubmit();
@@ -90,6 +96,18 @@ export function AddStockForm({
     return f && rate ? Number(f.current_selling_price) * rate : 0;
   }, [fuel, fuelTypes, rate]);
 
+  // Warn when the price is far from what this fuel usually costs or sells for (compared in the base currency).
+  const fuelRefs = refs.fuel[fuel];
+  const costCheck = usePriceCheck(rate ? perLitre / rate : 0, [
+    { label: "last price", value: fuelRefs?.lastCost },
+    { label: "tank average cost", value: selectedTank ? refs.tankAvg[selectedTank.id] : null },
+  ], true);
+  const sellN = toNum(sellPrice) ?? 0;
+  const sellCheck = usePriceCheck(rate ? sellN / rate : 0, [
+    { label: "pump price", value: fuelRefs?.pump },
+    { label: "last sale price", value: fuelRefs?.lastSale },
+  ], true);
+
   function changeFuel(id: string) {
     setFuel(id);
     setTank(tanks.find((t) => t.fuel_type_id === id)?.id ?? NEW);
@@ -98,6 +116,7 @@ export function AddStockForm({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!costCheck.ok || !sellCheck.ok) return toast.error(CONFIRM_FIRST);
     const ok = await submit(
       schema,
       {
@@ -226,6 +245,8 @@ export function AddStockForm({
         </div>
         {errors.cost ? <p className="text-[13px] text-orange">{errors.cost}</p> : null}
       </div>
+      {c > 0 && l > 0 ? <PriceSummary perLitre={perLitre} total={fuelTotal} currency={currency} label="Fuel total" /> : null}
+      {costCheck.node}
 
       <Field
         label={`Sell it for, per litre (${currency})`}
@@ -235,6 +256,8 @@ export function AddStockForm({
       >
         <Input id="as-sell" inputMode="decimal" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} />
       </Field>
+      {sellN > 0 ? <PriceSummary perLitre={sellN} total={l > 0 ? sellN * l : null} currency={currency} label="If all sold" /> : null}
+      {sellCheck.node}
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Supplier" htmlFor="as-sup" error={errors.supplier}>

@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toNum, useSubmit } from "@/lib/use-submit";
 import { formatDate, litres, num } from "@/lib/utils";
 import type { FuelType, Supplier, Tank, Truck } from "@/lib/types";
+import type { PriceRefs } from "@/lib/price-check";
 import { useMoney } from "@/components/money-provider";
 import { AddStockForm } from "@/components/add-stock-form";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ export function PurchasesClient({
   tanks,
   fuelTypes,
   filter,
+  refs,
 }: {
   rows: DeliveryRow[];
   trucks: Truck[];
@@ -53,6 +55,7 @@ export function PurchasesClient({
   tanks: Tank[];
   fuelTypes: FuelType[];
   filter: { truck: string; supplier: string };
+  refs: PriceRefs;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -83,7 +86,7 @@ export function PurchasesClient({
             <CardTitle>New delivery</CardTitle>
           </CardHeader>
           <CardContent>
-            <AddStockForm fuelTypes={fuelTypes} tanks={tanks} suppliers={suppliers} trucks={trucks} />
+            <AddStockForm fuelTypes={fuelTypes} tanks={tanks} suppliers={suppliers} trucks={trucks} refs={refs} />
           </CardContent>
         </Card>
 

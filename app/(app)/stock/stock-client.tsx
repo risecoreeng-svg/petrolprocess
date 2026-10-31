@@ -15,6 +15,9 @@ import { EmptyState, PageHeader, Progress } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
 import { InfoTip } from "@/components/ui/info-tip";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { toast } from "sonner";
+import { CONFIRM_FIRST, PriceSummary, usePriceCheck } from "@/components/price-check";
+import type { PriceRefs } from "@/lib/price-check";
 
 export type AdjustmentRow = {
   id: string;
@@ -51,12 +54,14 @@ export function StockClient({
   adjustments,
   valueByTank,
   staff,
+  refs,
 }: {
   tanks: Tank[];
   fuelTypes: FuelType[];
   adjustments: AdjustmentRow[];
   valueByTank: Record<string, { avg: number; value: number }> | null;
   staff: { id: string; full_name: string }[];
+  refs: PriceRefs;
 }) {
   const { money } = useMoney();
   const [editingTank, setEditingTank] = useState<Tank | "new" | null>(null);
@@ -205,7 +210,7 @@ export function StockClient({
       {editingTank ? (
         <TankForm tank={editingTank === "new" ? null : editingTank} fuelTypes={fuelTypes} onClose={() => setEditingTank(null)} />
       ) : null}
-      {editingPrice ? <PriceForm fuel={editingPrice} onClose={() => setEditingPrice(null)} /> : null}
+      {editingPrice ? <PriceForm fuel={editingPrice} refs={refs} tanks={tanks} onClose={() => setEditingPrice(null)} /> : null}
     </>
   );
 }
@@ -336,16 +341,25 @@ function TankForm({ tank, fuelTypes, onClose }: { tank: Tank | null; fuelTypes: 
   );
 }
 
-function PriceForm({ fuel, onClose }: { fuel: FuelType; onClose: () => void }) {
+function PriceForm({ fuel, refs, tanks, onClose }: { fuel: FuelType; refs: PriceRefs; tanks: Tank[]; onClose: () => void }) {
   const { submit, pending, errors } = useSubmit();
   const { base, enabled, perBase, money, fmt } = useMoney();
   const [currency, setCurrency] = useState(base);
   const rate = perBase(currency) ?? 1;
   const [price, setPrice] = useState(String(Math.round(Number(fuel.current_selling_price) * 100) / 100));
   const entered = toNum(price) ?? 0;
+  // Against today's pump price, the last sale and what the fuel costs (owner sees the tank average).
+  const fuelRefs = refs.fuel[fuel.id];
+  const avg = tanks.filter((t) => t.fuel_type_id === fuel.id).map((t) => refs.tankAvg[t.id]).find((v) => v > 0);
+  const check = usePriceCheck(entered / rate, [
+    { label: "current pump price", value: fuelRefs?.pump },
+    { label: "last sale price", value: fuelRefs?.lastSale },
+    { label: avg ? "tank average cost" : "last delivery cost", value: avg ?? fuelRefs?.lastCost },
+  ], true);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!check.ok) return toast.error(CONFIRM_FIRST);
     // Stored in base currency; sales in other currencies convert at the day's rate.
     const ok = await submit(
       priceSchema,
@@ -387,6 +401,8 @@ function PriceForm({ fuel, onClose }: { fuel: FuelType; onClose: () => void }) {
           </div>
         </Field>
         <p className="text-[13px] text-muted">Now: {fmt(Number(fuel.current_selling_price) * rate, currency)} per litre</p>
+        {entered > 0 ? <PriceSummary perLitre={entered} total={null} currency={currency} /> : null}
+        {check.node}
         <Button type="submit" size="lg" disabled={pending}>
           Update price
         </Button>

@@ -16,6 +16,8 @@ import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { Modal } from "@/components/ui/modal";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { DeleteButton, useMayChange } from "@/components/delete-record";
+import { CONFIRM_FIRST, PriceSummary, usePriceCheck } from "@/components/price-check";
+import { toast } from "sonner";
 
 export type ExpenseRow = {
   id: string;
@@ -46,9 +48,12 @@ export function ExpensesClient({
   trucks,
   filter,
   defaults,
+  lastAmounts,
 }: {
   rows: ExpenseRow[];
   trucks: Truck[];
+  /** Last amount per category, in base currency, for the "this looks wrong" warning */
+  lastAmounts: Record<string, number>;
   filter: { from: string; to: string; category: string; truck: string };
   defaults: { monthStart: string; weekStart: string; today: string };
 }) {
@@ -72,7 +77,7 @@ export function ExpensesClient({
     <>
       <PageHeader title="Expenses" description="Running costs: rent, salaries, power, repairs. Buying fuel goes under Deliveries." />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_1fr]">
-        <ExpenseForm trucks={trucks} />
+        <ExpenseForm trucks={trucks} lastAmounts={lastAmounts} />
 
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap gap-2">
@@ -166,7 +171,7 @@ export function ExpensesClient({
   );
 }
 
-function ExpenseForm({ trucks }: { trucks: Truck[] }) {
+function ExpenseForm({ trucks, lastAmounts }: { trucks: Truck[]; lastAmounts: Record<string, number> }) {
   const { base, enabled, perBase, money } = useMoney();
   const [currency, setCurrency] = useState(base);
   const { submit, pending, errors } = useSubmit();
@@ -175,9 +180,15 @@ function ExpenseForm({ trucks }: { trucks: Truck[] }) {
   const [amount, setAmount] = useState("");
   const [truckId, setTruckId] = useState("");
   const [description, setDescription] = useState("");
+  const rate = perBase(currency);
+  const amountN = toNum(amount) ?? 0;
+  const check = usePriceCheck(rate ? amountN / rate : 0, [
+    { label: `last ${labelize(category || "other").toLowerCase()} expense`, value: category ? lastAmounts[category] : null },
+  ], false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!check.ok) return toast.error(CONFIRM_FIRST);
     const ok = await submit(
       schema,
       { date, category, currency, original_amount: toNum(amount), truck_id: truckId || null, description: description || null },
@@ -230,6 +241,8 @@ function ExpenseForm({ trucks }: { trucks: Truck[] }) {
               ))}
             </Select>
           </Field>
+          {amountN > 0 ? <PriceSummary perLitre={null} total={amountN} currency={currency} label="Amount" /> : null}
+          {check.node}
           <Field
             label="Truck (optional)"
             htmlFor="etruck"
